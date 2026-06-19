@@ -1,0 +1,6 @@
+{
+  "name": "Finance Tracker",
+  "description": "An offline-first personal finance tracker supporting multi-country standards, banking wallets, tax categorizations, month-to-month dynamic analytics, and smart AI spend insights.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
