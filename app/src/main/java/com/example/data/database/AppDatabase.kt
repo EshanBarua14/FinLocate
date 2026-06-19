@@ -17,7 +17,7 @@ import com.example.data.model.*
         UserEntity::class,
         CountryConfigEntity::class
     ],
-    version = 2, // version bump to 2 to represent a fresh production configuration
+    version = 3, // version bump to 3 to represent a fresh production configuration with recurring transactions
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
