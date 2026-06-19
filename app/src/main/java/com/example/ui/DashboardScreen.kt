@@ -1,6 +1,10 @@
 package com.example.ui
 
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
@@ -256,13 +260,36 @@ fun DashboardScreen(
                     modifier = Modifier.padding(16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text(
-                        text = "CATEGORY SPENDING DISTRIBUTION",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                        modifier = Modifier.align(Alignment.Start)
-                    )
+                    var chartModeD3 by remember { mutableStateOf(false) }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "CATEGORY SPENDING DISTRIBUTION",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = "D3 Engine",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Switch(
+                                checked = chartModeD3,
+                                onCheckedChange = { chartModeD3 = it },
+                                modifier = Modifier.testTag("d3_chart_mode_switch")
+                            )
+                        }
+                    }
                     Spacer(modifier = Modifier.height(16.dp))
 
                     val expenseTransactions = rawTransactions.filter { it.type == "EXPENSE" }
@@ -305,12 +332,34 @@ fun DashboardScreen(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             // Circular Canvas chart
-                            PieChartContainer(
-                                shares = sortedCategories,
+                            Box(
                                 modifier = Modifier
                                     .size(130.dp)
-                                    .padding(8.dp)
-                            )
+                                    .padding(4.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                AnimatedContent(
+                                    targetState = selectedMonth,
+                                    transitionSpec = {
+                                        (fadeIn(animationSpec = tween(400)) + scaleIn(initialScale = 0.85f)) togetherWith
+                                                (fadeOut(animationSpec = tween(400)) + scaleOut(targetScale = 0.85f))
+                                    },
+                                    label = "chart_month_transition"
+                                ) { targetMonth ->
+                                    if (chartModeD3) {
+                                        D3ChartWebView(
+                                            shares = sortedCategories,
+                                            currencySymbol = countryConfig.currencySymbol,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                    } else {
+                                        PieChartContainer(
+                                            shares = sortedCategories,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                    }
+                                }
+                            }
                             Spacer(modifier = Modifier.width(16.dp))
 
                             // Breakdown Indicators
@@ -590,4 +639,131 @@ fun AlertItemCard(
             }
         }
     }
+}
+
+@Composable
+fun D3ChartWebView(
+    shares: List<CategoryShare>,
+    currencySymbol: String,
+    modifier: Modifier = Modifier
+) {
+    val rawJson = shares.joinToString(",") { share ->
+        "{\"name\":\"${share.categoryName.replace("\"", "\\\"")}\", \"value\": ${share.amount}}"
+    }
+
+    val htmlContent = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+            <style>
+                body {
+                    background-color: #0F172A; /* Match Slate 900 */
+                    color: #F8FAFC;
+                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                    margin: 0;
+                    padding: 0;
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    justify-content: center;
+                    overflow: hidden;
+                    width: 100vw;
+                    height: 100vh;
+                }
+                #chart-container {
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    width: 100%;
+                    height: 100%;
+                }
+                text {
+                    font-family: inherit;
+                }
+                path {
+                    cursor: pointer;
+                }
+            </style>
+            <script src="https://d3js.org/d3.v7.min.js"></script>
+        </head>
+        <body>
+            <div id="chart-container"></div>
+            <script>
+                const data = [ $rawJson ];
+                const width = 120;
+                const height = 120;
+                const radius = Math.min(width, height) / 2 - 4;
+
+                const svg = d3.select("#chart-container")
+                    .append("svg")
+                    .attr("width", width)
+                    .attr("height", height)
+                    .append("g")
+                    .attr("transform", "translate(" + (width / 2) + "," + (height / 2) + ")");
+
+                const color = d3.scaleOrdinal()
+                    .domain(data.map(d => d.name))
+                    .range(["#10B981", "#3B82F6", "#F59E0B", "#8B5CF6", "#F43F5E", "#06B6D4"]);
+
+                const pie = d3.pie()
+                    .value(d => d.value)
+                    .sort(null);
+                    
+                const data_ready = pie(data);
+
+                const arc = d3.arc()
+                    .innerRadius(radius * 0.55)
+                    .outerRadius(radius * 0.95);
+
+                svg.selectAll('slices')
+                    .data(data_ready)
+                    .join('path')
+                    .attr('fill', d => color(d.data.name))
+                    .attr("stroke", "#0F172A")
+                    .style("stroke-width", "1.5px")
+                    .transition()
+                    .duration(800)
+                    .attrTween('d', function(d) {
+                        var i = d3.interpolate({startAngle: 0, endAngle: 0}, d);
+                        return function(t) { return arc(i(t)); };
+                    });
+
+                // total values static label
+                const totalVal = d3.sum(data, d => d.value);
+
+                svg.append("text")
+                    .attr("text-anchor", "middle")
+                    .attr("dy", "-0.1em")
+                    .style("font-size", "8px")
+                    .style("font-weight", "600")
+                    .style("fill", "#94A3B8")
+                    .text("D3 VALUE");
+
+                svg.append("text")
+                    .attr("text-anchor", "middle")
+                    .attr("dy", "1.0em")
+                    .style("font-size", "9px")
+                    .style("font-weight", "800")
+                    .style("fill", "#10B981")
+                    .text("$currencySymbol" + Math.round(totalVal));
+            </script>
+        </body>
+        </html>
+    """.trimIndent()
+
+    AndroidView(
+        modifier = modifier.clip(RoundedCornerShape(8.dp)),
+        factory = { context ->
+            android.webkit.WebView(context).apply {
+                settings.javaScriptEnabled = true
+                settings.domStorageEnabled = true
+                webViewClient = android.webkit.WebViewClient()
+                setBackgroundColor(android.graphics.Color.parseColor("#0F172A"))
+            }
+        },
+        update = { webView ->
+            webView.loadDataWithBaseURL("https://local.d3", htmlContent, "text/html", "UTF-8", null)
+        }
+    )
 }

@@ -105,3 +105,27 @@ interface InsightDao {
     @Query("DELETE FROM insights")
     suspend fun clearInsights()
 }
+
+@Dao
+interface UserDao {
+    @Query("SELECT * FROM users WHERE email = :email LIMIT 1")
+    suspend fun getUserByEmailStatic(email: String): UserEntity?
+
+    @Query("SELECT * FROM users LIMIT 1")
+    fun getActiveUserFlow(): Flow<UserEntity?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertUser(user: UserEntity)
+}
+
+@Dao
+interface CountryConfigDao {
+    @Query("SELECT * FROM country_configs")
+    fun getAllConfigsFlow(): Flow<List<CountryConfigEntity>>
+
+    @Query("SELECT * FROM country_configs WHERE country = :country LIMIT 1")
+    suspend fun getConfigByCountryStatic(country: String): CountryConfigEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertConfig(config: CountryConfigEntity)
+}

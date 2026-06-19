@@ -1,0 +1,12 @@
+{
+  "country": "India",
+  "currency": "INR",
+  "currencySymbol": "₹",
+  "fiscalYear": "April-March",
+  "wallets": ["Paytm", "PhonePe", "Google Pay UPI", "Amazon Pay"],
+  "standardBanks": ["SBI", "HDFC Bank", "ICICI Bank", "Axis Bank"],
+  "taxRateDefault": 18.0,
+  "taxCategories": ["Section 80C ELSS", "Section 80D Health Premium", "NPS contribution", "Home Loan Principal"],
+  "language": "Hindi/English",
+  "numberFormat": "en-IN"
+}

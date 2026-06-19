@@ -15,6 +15,8 @@ class FinanceRepository(private val db: AppDatabase) {
     private val budgetDao = db.budgetDao()
     private val countrySettingDao = db.countrySettingDao()
     private val insightDao = db.insightDao()
+    private val userDao = db.userDao()
+    private val countryConfigDao = db.countryConfigDao()
 
     // --- Observable Flows ---
     val allAccounts: Flow<List<AccountEntity>> = accountDao.getAllAccounts()
@@ -160,6 +162,29 @@ class FinanceRepository(private val db: AppDatabase) {
     // --- Dynamic Seeding Logic matching Selected Country configuration ---
     suspend fun seedInitialFinanceData(countryName: String) = withContext(Dispatchers.IO) {
         val config = CountryConfig.find(countryName)
+
+        // Seed Active User Details
+        userDao.insertUser(UserEntity(
+            email = "eshanbaruabarua@gmail.com",
+            name = "Eshan Barua",
+            selectedCountry = countryName
+        ))
+
+        // Seed Offline Country Configurations inside country_configs table
+        for (c in CountryConfig.DefaultList) {
+            countryConfigDao.insertConfig(CountryConfigEntity(
+                country = c.country,
+                currency = c.currency,
+                currencySymbol = c.currencySymbol,
+                fiscalYear = c.fiscalYear,
+                wallets = c.wallets.joinToString(","),
+                standardBanks = c.standardBanks.joinToString(","),
+                taxRateDefault = c.taxRateDefault,
+                taxCategories = c.taxCategories.joinToString(","),
+                language = c.language,
+                numberFormat = c.numberFormat
+            ))
+        }
 
         // 1. Clear previous categories (since they differ by country tax regulations)
         categoryDao.clearCategories()

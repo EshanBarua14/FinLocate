@@ -1,10 +1,9 @@
 package com.example.data.model
 
-import androidx.room.Entity
-import androidx.room.Index
-import androidx.room.PrimaryKey
+import androidx.room.*
 
 // --- Country Config & Plugins ---
+
 data class CountryConfig(
     val country: String,
     val currency: String,
@@ -83,6 +82,35 @@ data class CountryConfig(
 data class CountrySettingEntity(
     @PrimaryKey val id: Int = 1, // only 1 active setting
     val selectedCountry: String = "USA"
+)
+
+@Entity(
+    tableName = "users",
+    indices = [Index(value = ["email"], unique = true)]
+)
+data class UserEntity(
+    @PrimaryKey val email: String,
+    val name: String,
+    val selectedCountry: String = "USA",
+    val createdAt: Long = System.currentTimeMillis()
+)
+
+@Entity(
+    tableName = "country_configs",
+    indices = [Index(value = ["country"], unique = true)]
+)
+data class CountryConfigEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val country: String,
+    val currency: String,
+    val currencySymbol: String,
+    val fiscalYear: String,
+    val wallets: String, // comma-separated values
+    val standardBanks: String, // comma-separated values
+    val taxRateDefault: Double,
+    val taxCategories: String, // comma-separated values
+    val language: String,
+    val numberFormat: String
 )
 
 @Entity(
@@ -165,4 +193,19 @@ data class InsightEntity(
     val severity: String, // ALERT, WARNING, SUCCESS, INFO
     val timestamp: Long = System.currentTimeMillis(),
     val isRead: Boolean = false
+)
+
+// --- Relational Schema Mappings ---
+data class TransactionWithCategoryAndAccount(
+    @Embedded val transaction: TransactionEntity,
+    @Relation(
+        parentColumn = "accountId",
+        entityColumn = "id"
+    )
+    val account: AccountEntity?,
+    @Relation(
+        parentColumn = "categoryId",
+        entityColumn = "id"
+    )
+    val category: CategoryEntity?
 )

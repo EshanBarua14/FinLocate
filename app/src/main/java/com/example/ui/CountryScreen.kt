@@ -31,6 +31,7 @@ fun CountryScreen(
 ) {
     val activeConfig by viewModel.activeCountryConfig.collectAsState()
     val availableCount_ies = remember { CountryConfig.DefaultList }
+    val applyTaxRule by viewModel.applyLocalTax.collectAsState()
 
     LazyColumn(
         modifier = modifier
@@ -73,6 +74,55 @@ fun CountryScreen(
                             lineHeight = 15.sp
                         )
                     }
+                }
+            }
+        }
+
+        // --- LOCAL TAX RULES CONTROLLER ---
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("tax_rules_controller_card")
+            ) {
+                Row(
+                    modifier = Modifier
+                        .padding(16.dp)
+                        .fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "DYNAMIC TAX & VAT CALCULATION",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.sp
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Apply standard ${activeConfig.country} rate (${activeConfig.taxRateDefault}%) directly to expense evaluations & deductibles.",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = if (applyTaxRule) "Active: Tax ledgers and logging forms auto-detect and resolve tax fractions." else "Inactive: Raw transaction amounts are tracked directly.",
+                            fontSize = 10.sp,
+                            color = if (applyTaxRule) com.example.ui.theme.FintechGreen else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Switch(
+                        checked = applyTaxRule,
+                        onCheckedChange = { viewModel.setApplyLocalTax(it) },
+                        modifier = Modifier.testTag("apply_tax_rules_switch")
+                    )
                 }
             }
         }

@@ -1,0 +1,12 @@
+{
+  "country": "Germany",
+  "currency": "EUR",
+  "currencySymbol": "€",
+  "fiscalYear": "January-December",
+  "wallets": ["PayPal", "Giropay", "Apple Pay", "Google Pay"],
+  "standardBanks": ["N26", "Sparkasse", "Deutsche Bank", "Commerzbank"],
+  "taxRateDefault": 19.0,
+  "taxCategories": ["Riester Pension", "Werbungskosten (Professional)", "Krankenkasse Health Plan", "Spenden (Donation)"],
+  "language": "German",
+  "numberFormat": "de-DE"
+}

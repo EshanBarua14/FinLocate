@@ -7,6 +7,7 @@ import com.example.data.api.GeminiApiClient
 import com.example.data.database.AppDatabase
 import com.example.data.model.*
 import com.example.data.repository.FinanceRepository
+import com.example.data.repository.CountryConfigProviderService
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -16,6 +17,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val db = AppDatabase.getDatabase(application)
     private val repository = FinanceRepository(db)
+    private val countryConfigProvider = CountryConfigProviderService(application)
+
+    // --- SharedPreferences for local settings ---
+    private val prefs = application.getSharedPreferences("wealthflow_prefs", Application.MODE_PRIVATE)
+    private val _applyLocalTax = MutableStateFlow(prefs.getBoolean("apply_local_tax", true))
+    val applyLocalTax: StateFlow<Boolean> = _applyLocalTax.asStateFlow()
+
+    fun setApplyLocalTax(value: Boolean) {
+        _applyLocalTax.value = value
+        prefs.edit().putBoolean("apply_local_tax", value).apply()
+    }
+
+    // --- Global Theme Toggle ---
+    private val _isDarkTheme = MutableStateFlow(prefs.getBoolean("is_dark_theme", true))
+    val isDarkTheme: StateFlow<Boolean> = _isDarkTheme.asStateFlow()
+
+    fun setDarkTheme(value: Boolean) {
+        _isDarkTheme.value = value
+        prefs.edit().putBoolean("is_dark_theme", value).apply()
+    }
 
     // --- Country State ---
     val activeCountrySetting: StateFlow<CountrySettingEntity> = repository.activeCountrySetting
@@ -23,7 +44,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), CountrySettingEntity(selectedCountry = "USA"))
 
     val activeCountryConfig: StateFlow<CountryConfig> = activeCountrySetting
-        .map { CountryConfig.find(it.selectedCountry) }
+        .map { countryConfigProvider.loadConfigForCountry(it.selectedCountry) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), CountryConfig.USA)
 
     // --- Core Flows ---
@@ -58,17 +79,49 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // Transactions filtered for the active month
+    // Transactions filtered for the active month (including automated subscription projections for future months)
     val filteredTransactions: StateFlow<List<TransactionEntity>> = combine(
         allTransactions,
         selectedMonth
     ) { txs, month ->
         val sdf = SimpleDateFormat("yyyy-MM", Locale.US)
-        txs.filter { tx ->
+        txs.flatMap { tx ->
             val txMonth = sdf.format(Date(tx.timestamp))
-            txMonth == month
+            if (txMonth == month) {
+                listOf(tx)
+            } else if (tx.isRecurring && month > txMonth) {
+                // Future projection: construct virtual projected duplicate in chosen target month
+                listOf(
+                    tx.copy(
+                        id = tx.id * 100_000 + month.replace("-", "").toLongOrNull().hashCode(), // unique virtual ID to avoid recycler conflicts
+                        timestamp = parseMonthToTimestamp(month, tx.timestamp),
+                        notes = "[Recurring Subscription] ${tx.notes}"
+                    )
+                )
+            } else {
+                emptyList()
+            }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private fun parseMonthToTimestamp(targetYearMonth: String, originalTimestamp: Long): Long {
+        return try {
+            val sdf = SimpleDateFormat("yyyy-MM", Locale.US)
+            val targetDate = sdf.parse(targetYearMonth) ?: return originalTimestamp
+            
+            val origCal = Calendar.getInstance()
+            origCal.timeInMillis = originalTimestamp
+            
+            val targetCal = Calendar.getInstance()
+            targetCal.time = targetDate
+            targetCal.set(Calendar.DAY_OF_MONTH, origCal.get(Calendar.DAY_OF_MONTH).coerceAtMost(targetCal.getActualMaximum(Calendar.DAY_OF_MONTH)))
+            targetCal.set(Calendar.HOUR_OF_DAY, origCal.get(Calendar.HOUR_OF_DAY))
+            targetCal.set(Calendar.MINUTE, origCal.get(Calendar.MINUTE))
+            targetCal.timeInMillis
+        } catch (e: Exception) {
+            originalTimestamp
+        }
+    }
 
     // Budgets for the active month
     val activeBudgets: StateFlow<List<BudgetEntity>> = selectedMonth
@@ -292,7 +345,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         taxRate: Double = 0.0,
         notes: String = "",
         isRecurring: Boolean = false,
-        splitCount: Int = 1
+        splitCount: Int = 1,
+        customTimestamp: Long? = null
     ) {
         viewModelScope.launch {
             val tx = TransactionEntity(
@@ -301,7 +355,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 categoryId = categoryId,
                 accountId = accountId,
                 toAccountId = toAccountId,
-                timestamp = System.currentTimeMillis(),
+                timestamp = customTimestamp ?: System.currentTimeMillis(),
                 merchant = merchant,
                 isTaxDeductible = isTaxDeductible,
                 taxRate = taxRate,
@@ -396,5 +450,74 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun formatCurrency(amount: Double): String {
         val config = activeCountryConfig.value
         return String.format(Locale.US, "%s%,.2f", config.currencySymbol, amount)
+    }
+
+    fun exportReportToCsv(context: android.content.Context) {
+        val txs = filteredTransactions.value
+        val cats = categories.value
+        val buds = activeBudgets.value
+        val currentMonthStr = selectedMonth.value
+        val config = activeCountryConfig.value
+
+        val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
+        
+        val csvBuilder = StringBuilder()
+        csvBuilder.append("WEALTHFLOW STATEMENT REPORT - ${config.country.uppercase()}\n")
+        csvBuilder.append("Report Date: ${sdf.format(Date())}\n")
+        csvBuilder.append("Active Month: $currentMonthStr\n\n")
+
+        csvBuilder.append("--- TRANSACTIONS LEDGER ---\n")
+        csvBuilder.append("Date,Type,Category,Merchant,Amount (${config.currency}),Tax Deductible,Recurring,Notes\n")
+        
+        txs.forEach { tx ->
+            val dateStr = sdf.format(Date(tx.timestamp))
+            val catName = cats.find { it.id == tx.categoryId }?.name ?: "Transfer"
+            val cleanNotes = tx.notes.replace("\"", "\"\"")
+            val cleanMerchant = tx.merchant.replace("\"", "\"\"")
+            csvBuilder.append("$dateStr,${tx.type},\"$catName\",\"$cleanMerchant\",${tx.amount},${tx.isTaxDeductible},${tx.isRecurring},\"$cleanNotes\"\n")
+        }
+
+        csvBuilder.append("\n--- BUDGET TRACKER LIMITS ($currentMonthStr) ---\n")
+        csvBuilder.append("Category,Budget Limit (${config.currency}),Spent (${config.currency}),Overruns\n")
+        buds.forEach { bud ->
+            val catName = cats.find { it.id == bud.categoryId }?.name ?: "Unknown"
+            val overrun = if (bud.spent > bud.amount) bud.spent - bud.amount else 0.0
+            csvBuilder.append("\"$catName\",${bud.amount},${bud.spent},$overrun\n")
+        }
+
+        val csvContent = csvBuilder.toString()
+        
+        try {
+            val fileName = "wealthflow_finance_report_${currentMonthStr.replace("-", "_")}.csv"
+            val file = java.io.File(context.cacheDir, fileName)
+            file.writeText(csvContent)
+
+            val fileUri = androidx.core.content.FileProvider.getUriForFile(
+                context,
+                "com.example.fileprovider",
+                file
+            )
+
+            val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                type = "text/csv"
+                putExtra(android.content.Intent.EXTRA_SUBJECT, "WealthFlow Finance Report - $currentMonthStr")
+                putExtra(android.content.Intent.EXTRA_TEXT, csvContent) // fallback text
+                putExtra(android.content.Intent.EXTRA_STREAM, fileUri)
+                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(android.content.Intent.createChooser(shareIntent, "Share statements CSV"))
+        } catch (e: Exception) {
+            // Safe plain text sharing fallback if URI conversion hits any device constraints
+            try {
+                val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(android.content.Intent.EXTRA_SUBJECT, "WealthFlow Finance Report - $currentMonthStr")
+                    putExtra(android.content.Intent.EXTRA_TEXT, csvContent)
+                }
+                context.startActivity(android.content.Intent.createChooser(shareIntent, "Share Report (Text Fallback)"))
+            } catch (fallbackEx: Exception) {
+                android.widget.Toast.makeText(context, "Export error: ${fallbackEx.message}", android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
     }
 }

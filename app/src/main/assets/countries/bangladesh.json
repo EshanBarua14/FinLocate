@@ -1,0 +1,12 @@
+{
+  "country": "Bangladesh",
+  "currency": "BDT",
+  "currencySymbol": "৳",
+  "fiscalYear": "July-June",
+  "wallets": ["bKash", "Nagad", "Rocket"],
+  "standardBanks": ["Brac Bank", "Dutch-Bangla Bank", "City Bank", "Sonali Bank"],
+  "taxRateDefault": 15.0,
+  "taxCategories": ["Hajj Expense", "Government Bond Savings", "DPS Investment", "Charity Contribution"],
+  "language": "Bengali/English",
+  "numberFormat": "bn-BD"
+}

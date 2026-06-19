@@ -161,27 +161,11 @@ fun TransactionScreen(
             }
         }
 
-        // --- RAPID MANUAL ENTRY MODAL SHEET ---
+        // --- RAPID MANUAL ENTRY MODAL SHEET / OVERLAY ---
         if (showAddSheet) {
-            AddTransactionSheet(
-                categories = categories,
-                accounts = accounts,
-                countryConfig = config,
-                onDismiss = { showAddSheet = false },
-                onAdd = { amount, type, categoryId, accountId, toAccountId, merchant, isDeductible, notes, split ->
-                    viewModel.addTransaction(
-                        amount = amount,
-                        type = type,
-                        categoryId = categoryId,
-                        accountId = accountId,
-                        toAccountId = toAccountId,
-                        merchant = merchant,
-                        isTaxDeductible = isDeductible,
-                        notes = notes,
-                        splitCount = split
-                    )
-                    showAddSheet = false
-                }
+            RapidEntryScreen(
+                viewModel = viewModel,
+                onDismiss = { showAddSheet = false }
             )
         }
     }

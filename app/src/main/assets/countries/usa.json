@@ -1,0 +1,12 @@
+{
+  "country": "USA",
+  "currency": "USD",
+  "currencySymbol": "$",
+  "fiscalYear": "January-December",
+  "wallets": ["Venmo", "PayPal", "Apple Pay", "Cash App"],
+  "standardBanks": ["Chase", "Bank of America", "Wells Fargo", "Citi"],
+  "taxRateDefault": 8.25,
+  "taxCategories": ["W2 Deductible Health", "Traditional IRA", "Charitable Charity (501c3)", "Business Travel"],
+  "language": "English",
+  "numberFormat": "en-US"
+}

@@ -27,6 +27,7 @@ import com.example.data.model.CategoryEntity
 import com.example.ui.theme.AccentGold
 import com.example.ui.theme.ExpenseRose
 import com.example.ui.theme.FintechGreen
+import androidx.compose.foundation.BorderStroke
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -39,6 +40,8 @@ fun BudgetScreen(
     val categories by viewModel.categories.collectAsState()
     val selectedMonth by viewModel.selectedMonth.collectAsState()
     val config by viewModel.activeCountryConfig.collectAsState()
+    val inflow by viewModel.currentInflow.collectAsState()
+    val outflow by viewModel.currentOutflow.collectAsState()
 
     var editingBudget by remember { mutableStateOf<BudgetEntity?>(null) }
     var selectedCategoryIdForNew by remember { mutableStateOf(0L) }
@@ -53,6 +56,8 @@ fun BudgetScreen(
             selectedMonth
         }
     }
+
+    val totalBudgetedLimit = remember(budgets) { budgets.sumOf { it.amount } }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -97,6 +102,82 @@ fun BudgetScreen(
                     )
                     IconButton(onClick = { viewModel.incrementMonth() }) {
                         Icon(imageVector = Icons.Default.ChevronRight, contentDescription = "Next")
+                    }
+                }
+            }
+
+            // --- CORE BUDGETING DASHBOARD COMPONENT ---
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .testTag("budget_dashboard_component")
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "BUDGET OVERVIEW & ANALYTICS",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text("Monthly Inflow (Income)", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                            Text("${config.currencySymbol}${inflow.toInt()}", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = FintechGreen)
+                        }
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text("Spending Limits Set", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                            Text("${config.currencySymbol}${totalBudgetedLimit.toInt()}", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+
+                    val safeOutflow = outflow.coerceAtLeast(0.0)
+                    val progressFraction = if (totalBudgetedLimit > 0) (safeOutflow / totalBudgetedLimit).toFloat().coerceIn(0f, 1f) else 0f
+                    val progressColor = if (progressFraction > 0.85f) ExpenseRose else MaterialTheme.colorScheme.primary
+
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Consumed Expenses Tracker", fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                            Text("${(progressFraction * 100).toInt()}%", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = progressColor)
+                        }
+                        LinearProgressIndicator(
+                            progress = { progressFraction },
+                            modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
+                            color = progressColor,
+                            trackColor = MaterialTheme.colorScheme.surfaceVariant
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Actual Expenses logged: ${config.currencySymbol}${safeOutflow.toInt()}",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                        )
+                        val remaining = totalBudgetedLimit - safeOutflow
+                        Text(
+                            text = if (remaining >= 0) "Remains: ${config.currencySymbol}${remaining.toInt()}" else "Over: ${config.currencySymbol}${-remaining.toInt()}",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (remaining >= 0) FintechGreen else ExpenseRose
+                        )
                     }
                 }
             }

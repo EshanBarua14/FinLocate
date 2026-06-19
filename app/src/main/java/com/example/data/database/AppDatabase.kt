@@ -13,7 +13,9 @@ import com.example.data.model.*
         CategoryEntity::class,
         TransactionEntity::class,
         BudgetEntity::class,
-        InsightEntity::class
+        InsightEntity::class,
+        UserEntity::class,
+        CountryConfigEntity::class
     ],
     version = 2, // version bump to 2 to represent a fresh production configuration
     exportSchema = false
@@ -25,6 +27,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun budgetDao(): BudgetDao
     abstract fun countrySettingDao(): CountrySettingDao
     abstract fun insightDao(): InsightDao
+    abstract fun userDao(): UserDao
+    abstract fun countryConfigDao(): CountryConfigDao
 
     companion object {
         @Volatile
