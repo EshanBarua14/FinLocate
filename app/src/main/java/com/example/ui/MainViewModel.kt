@@ -13,6 +13,16 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
+data class BudgetProjectionAnalysis(
+    val dailyAverage: Double = 0.0,
+    val projectedTotalSpent: Double = 0.0,
+    val totalBudget: Double = 0.0,
+    val isProjectedToExceed: Boolean = false,
+    val daysPassed: Int = 1,
+    val totalDays: Int = 30,
+    val currentSpent: Double = 0.0
+)
+
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val db = AppDatabase.getDatabase(application)
@@ -36,6 +46,56 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setDarkTheme(value: Boolean) {
         _isDarkTheme.value = value
         prefs.edit().putBoolean("is_dark_theme", value).apply()
+    }
+
+    // --- Exchange Rate Engine ---
+    private val _userCustomExchangeRates = MutableStateFlow<Map<String, Double>>(emptyMap())
+    val userCustomExchangeRates: StateFlow<Map<String, Double>> = _userCustomExchangeRates.asStateFlow()
+
+    private val _exchangeRates = MutableStateFlow<Map<String, Double>>(
+        mapOf(
+            "USD" to 1.0,
+            "EUR" to 0.92,
+            "GBP" to 0.79,
+            "JPY" to 157.5,
+            "CAD" to 1.37,
+            "AUD" to 1.51,
+            "INR" to 83.5,
+            "SGD" to 1.34,
+            "BDT" to 117.5
+        )
+    )
+    val exchangeRates: StateFlow<Map<String, Double>> = _exchangeRates.asStateFlow()
+
+    fun updateExchangeRate(currency: String, rate: Double) {
+        val currentCustom = _userCustomExchangeRates.value.toMutableMap()
+        currentCustom[currency.uppercase()] = rate
+        _userCustomExchangeRates.value = currentCustom
+        prefs.edit().putString("custom_exchange_rates", currentCustom.entries.joinToString(",") { "${it.key}:${it.value}" }).apply()
+
+        val currentAll = _exchangeRates.value.toMutableMap()
+        currentAll[currency.uppercase()] = rate
+        _exchangeRates.value = currentAll
+    }
+
+    // --- Category-Specific Tax Rates Panel ---
+    private val _categoryTaxRates = MutableStateFlow<Map<Long, Double>>(emptyMap())
+    val categoryTaxRates: StateFlow<Map<Long, Double>> = _categoryTaxRates.asStateFlow()
+
+    fun setTaxRateForCategory(categoryId: Long, rate: Double) {
+        val current = _categoryTaxRates.value.toMutableMap()
+        current[categoryId] = rate
+        _categoryTaxRates.value = current
+        prefs.edit().putString("cat_tax_rates", current.entries.joinToString(",") { "${it.key}:${it.value}" }).apply()
+    }
+
+    fun convertCurrency(amount: Double, fromCurrency: String, toCurrency: String): Double {
+        if (fromCurrency.uppercase() == toCurrency.uppercase()) return amount
+        val rates = exchangeRates.value
+        val fromRateInUsd = rates[fromCurrency.uppercase()] ?: return amount
+        val toRateInUsd = rates[toCurrency.uppercase()] ?: return amount
+        val amountInUsd = amount / fromRateInUsd
+        return amountInUsd * toRateInUsd
     }
 
     // --- Country State ---
@@ -69,12 +129,72 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val sdf = SimpleDateFormat("yyyy-MM", Locale.US)
         _selectedMonth.value = sdf.format(Date())
 
+        // Load saved custom values from Shared Preferences
+        val savedCustomRatesStr = prefs.getString("custom_exchange_rates", "") ?: ""
+        if (savedCustomRatesStr.isNotEmpty()) {
+            try {
+                val map = savedCustomRatesStr.split(",").associate {
+                    val parts = it.split(":")
+                    parts[0] to parts[1].toDouble()
+                }
+                _userCustomExchangeRates.value = map
+                // Apply on top of seeded exchange rates
+                val currentAll = _exchangeRates.value.toMutableMap()
+                map.forEach { (k, v) -> currentAll[k] = v }
+                _exchangeRates.value = currentAll
+            } catch (e: Exception) {
+                // ignore
+            }
+        }
+
+        val savedTaxRatesStr = prefs.getString("cat_tax_rates", "") ?: ""
+        if (savedTaxRatesStr.isNotEmpty()) {
+            try {
+                val map = savedTaxRatesStr.split(",").associate {
+                    val parts = it.split(":")
+                    parts[0].toLong() to parts[1].toDouble()
+                }
+                _categoryTaxRates.value = map
+            } catch (e: Exception) {
+                // ignore
+            }
+        }
+
         // Ensure database seeds on first run
         viewModelScope.launch {
             val setting = db.countrySettingDao().getCountrySettingStatic()
             if (setting == null) {
                 // First initialization - Seed USA
                 repository.setCountrySetting("USA", forceReSeed = true)
+            }
+        }
+
+        // Real-time currency background fetch from reliable api open.er-api.com
+        viewModelScope.launch {
+            try {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val conn = java.net.URL("https://open.er-api.com/v6/latest/USD").openConnection() as java.net.HttpURLConnection
+                    conn.requestMethod = "GET"
+                    conn.connectTimeout = 5000
+                    conn.readTimeout = 5000
+                    if (conn.responseCode == 200) {
+                        val text = conn.inputStream.bufferedReader().use { it.readText() }
+                        val regex = "\"([A-Z]{3})\":\\s*([0-9\\.]+)".toRegex()
+                        val matches = regex.findAll(text)
+                        val newRates = matches.associate {
+                            it.groupValues[1] to (it.groupValues[2].toDoubleOrNull() ?: 1.0)
+                        }
+                        if (newRates.isNotEmpty() && newRates.containsKey("USD")) {
+                            val merged = newRates.toMutableMap()
+                            _userCustomExchangeRates.value.forEach { (k, v) ->
+                                merged[k] = v
+                            }
+                            _exchangeRates.value = merged
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                // Fall back gracefully to stable pre-seeded rates offline
             }
         }
     }
@@ -129,17 +249,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // --- State Calculations ---
-    val totalBalance: StateFlow<Double> = accounts
-        .map { accList -> accList.sumOf { it.balance } }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+    val totalBalance: StateFlow<Double> = combine(accounts, activeCountryConfig, exchangeRates) { accList, country, rates ->
+        accList.sumOf { acc ->
+            convertCurrency(acc.balance, acc.currency, country.currency)
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
-    val currentInflow: StateFlow<Double> = filteredTransactions
-        .map { txList -> txList.filter { it.type == "INCOME" }.sumOf { it.amount } }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+    val currentInflow: StateFlow<Double> = combine(filteredTransactions, accounts, activeCountryConfig, exchangeRates) { txList, accList, country, rates ->
+        txList.filter { it.type == "INCOME" }.sumOf { tx ->
+            val acc = accList.find { it.id == tx.accountId }
+            val txCurrency = acc?.currency ?: "USD"
+            convertCurrency(tx.amount, txCurrency, country.currency)
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
-    val currentOutflow: StateFlow<Double> = filteredTransactions
-        .map { txList -> txList.filter { it.type == "EXPENSE" }.sumOf { it.amount } }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+    val currentOutflow: StateFlow<Double> = combine(filteredTransactions, accounts, activeCountryConfig, exchangeRates) { txList, accList, country, rates ->
+        txList.filter { it.type == "EXPENSE" }.sumOf { tx ->
+            val acc = accList.find { it.id == tx.accountId }
+            val txCurrency = acc?.currency ?: "USD"
+            convertCurrency(tx.amount, txCurrency, country.currency)
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
     val burnRateAndRunway: StateFlow<String> = combine(
         totalBalance,
@@ -158,6 +288,72 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "Calculating...")
+
+    // Smart trend projection to warn if user exceeds monthly limit based on daily spending average
+    val budgetProjection: StateFlow<BudgetProjectionAnalysis> = combine(
+        filteredTransactions,
+        activeBudgets,
+        selectedMonth
+    ) { txList, budgetList, monthStr ->
+        val totalBudgetAmount = budgetList.sumOf { it.amount }
+        val currentSpentAmount = txList.filter { it.type == "EXPENSE" }.sumOf { it.amount }
+        
+        if (totalBudgetAmount <= 0.0) {
+            BudgetProjectionAnalysis(
+                dailyAverage = 0.0,
+                projectedTotalSpent = 0.0,
+                totalBudget = 0.0,
+                isProjectedToExceed = false,
+                daysPassed = 1,
+                totalDays = 30,
+                currentSpent = currentSpentAmount
+            )
+        } else {
+            val sdf = SimpleDateFormat("yyyy-MM", Locale.US)
+            val calendar = Calendar.getInstance()
+            val currentYear = calendar.get(Calendar.YEAR)
+            val currentMonth = calendar.get(Calendar.MONTH)
+            val currentDay = calendar.get(Calendar.DAY_OF_MONTH)
+
+            val targetCal = Calendar.getInstance()
+            var daysPassed = 1
+            var totalDays = 30
+            try {
+                val targetDate = sdf.parse(monthStr)
+                if (targetDate != null) {
+                    targetCal.time = targetDate
+                    totalDays = targetCal.getActualMaximum(Calendar.DAY_OF_MONTH)
+                    
+                    val targetYear = targetCal.get(Calendar.YEAR)
+                    val targetMonth = targetCal.get(Calendar.MONTH)
+                    
+                    if (targetYear == currentYear && targetMonth == currentMonth) {
+                        daysPassed = currentDay.coerceIn(1, totalDays)
+                    } else if (targetYear < currentYear || (targetYear == currentYear && targetMonth < currentMonth)) {
+                        daysPassed = totalDays
+                    } else {
+                        daysPassed = 1
+                    }
+                }
+            } catch (e: Exception) {
+                // ignore
+            }
+
+            val dailyAvg = currentSpentAmount / daysPassed
+            val projectedTotal = dailyAvg * totalDays
+            val isExceeding = projectedTotal > totalBudgetAmount && currentSpentAmount > 0.0
+
+            BudgetProjectionAnalysis(
+                dailyAverage = dailyAvg,
+                projectedTotalSpent = projectedTotal,
+                totalBudget = totalBudgetAmount,
+                isProjectedToExceed = isExceeding,
+                daysPassed = daysPassed,
+                totalDays = totalDays,
+                currentSpent = currentSpentAmount
+            )
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), BudgetProjectionAnalysis())
 
     // --- AI Insight Generation Scope ---
     private val _aiInsightsLoading = MutableStateFlow(false)

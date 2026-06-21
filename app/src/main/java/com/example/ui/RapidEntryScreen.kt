@@ -1057,21 +1057,9 @@ fun DetailedFormLayout(
             onClick = {
                 val amt = formAmount.toDoubleOrNull() ?: 0.0
                 if (amt > 0) {
-                    val conversionRate = if (formCurrency != config.currency) {
-                        when {
-                            formCurrency == "USD" && config.currency == "EUR" -> 0.92
-                            formCurrency == "EUR" && config.currency == "USD" -> 1.09
-                            formCurrency == "GBP" && config.currency == "USD" -> 1.27
-                            formCurrency == "USD" && config.currency == "INR" -> 83.0
-                            formCurrency == "INR" && config.currency == "USD" -> 0.012
-                            formCurrency == "USD" && config.currency == "BDT" -> 117.0
-                            formCurrency == "BDT" && config.currency == "USD" -> 0.0085
-                            else -> 1.0
-                        }
-                    } else 1.0
-
-                    val baseAmount = amt * conversionRate
-                    val taxRateToUse = if (isTaxDeductible) config.taxRateDefault else 0.0
+                    val baseAmount = viewModel.convertCurrency(amt, formCurrency, config.currency)
+                    val customCategoryTax = viewModel.categoryTaxRates.value[selectedCategoryId] ?: config.taxRateDefault
+                    val taxRateToUse = if (isTaxDeductible) customCategoryTax else 0.0
 
                     viewModel.addTransaction(
                         amount = baseAmount,
@@ -1082,7 +1070,7 @@ fun DetailedFormLayout(
                         merchant = merchant.ifEmpty { if (transactionType == "TRANSFER") "Transfer" else "Retail Ledger" },
                         isTaxDeductible = isTaxDeductible,
                         taxRate = taxRateToUse,
-                        notes = notes.ifEmpty { "Form logged ($formCurrency $amt with D3 mapping: $selectedTaxCategory)" },
+                        notes = notes.ifEmpty { "Form logged ($formCurrency $amt with dynamic mapping: $selectedTaxCategory)" },
                         isRecurring = isRecurring,
                         customTimestamp = selectedDate
                     )

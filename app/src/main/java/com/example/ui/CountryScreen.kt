@@ -7,6 +7,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Map
@@ -32,6 +33,10 @@ fun CountryScreen(
     val activeConfig by viewModel.activeCountryConfig.collectAsState()
     val availableCount_ies = remember { CountryConfig.DefaultList }
     val applyTaxRule by viewModel.applyLocalTax.collectAsState()
+
+    val exchangeRates by viewModel.exchangeRates.collectAsState()
+    val categoryTaxRates by viewModel.categoryTaxRates.collectAsState()
+    val categories by viewModel.categories.collectAsState()
 
     LazyColumn(
         modifier = modifier
@@ -123,6 +128,238 @@ fun CountryScreen(
                         onCheckedChange = { viewModel.setApplyLocalTax(it) },
                         modifier = Modifier.testTag("apply_tax_rules_switch")
                     )
+                }
+            }
+        }
+
+        // --- USER-DEFINED EXCHANGE RATES ---
+        item {
+            var isRatesExpanded by remember { mutableStateOf(false) }
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)),
+                modifier = Modifier.fillMaxWidth().testTag("exchange_rates_card")
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "USER-DEFINED EXCHANGE RATES",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.sp
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Modify exchange rates relative to USD base currency ($1.0 USD)",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            )
+                        }
+                        TextButton(
+                            onClick = { isRatesExpanded = !isRatesExpanded },
+                            modifier = Modifier.testTag("toggle_rates_btn")
+                        ) {
+                            Text(if (isRatesExpanded) "Collapse" else "Expand")
+                        }
+                    }
+
+                    if (isRatesExpanded) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        val currencies = listOf("USD", "EUR", "GBP", "JPY", "CAD", "AUD", "INR", "SGD", "BDT")
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            currencies.forEach { cur ->
+                                if (cur != "USD") {
+                                    val currentRate = exchangeRates[cur] ?: 1.0
+                                    var editRateStr by remember(currentRate) { mutableStateOf(currentRate.toString()) }
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "1 USD = ",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                        )
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            OutlinedTextField(
+                                                value = editRateStr,
+                                                onValueChange = { editRateStr = it },
+                                                placeholder = { Text("Rate") },
+                                                singleLine = true,
+                                                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                                    keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                                                ),
+                                                modifier = Modifier
+                                                    .width(100.dp)
+                                                    .height(48.dp)
+                                                    .testTag("rate_input_$cur"),
+                                                colors = OutlinedTextFieldDefaults.colors(
+                                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                                    unfocusedBorderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
+                                                )
+                                            )
+                                            Text(
+                                                text = cur,
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                            IconButton(
+                                                onClick = {
+                                                    val parsedVal = editRateStr.toDoubleOrNull()
+                                                    if (parsedVal != null && parsedVal > 0.0) {
+                                                        viewModel.updateExchangeRate(cur, parsedVal)
+                                                    }
+                                                },
+                                                modifier = Modifier.testTag("update_rate_btn_$cur")
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Check,
+                                                    contentDescription = "Save Rate",
+                                                    tint = FintechGreen
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- CATEGORY-SPECIFIC TAX RATES ---
+        item {
+            var isTaxCategoriesExpanded by remember { mutableStateOf(false) }
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)),
+                modifier = Modifier.fillMaxWidth().testTag("category_tax_rates_card")
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "CATEGORY-SPECIFIC TAX RATES",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.sp
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Configure custom tax rates applied to category expense reports",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            )
+                        }
+                        TextButton(
+                            onClick = { isTaxCategoriesExpanded = !isTaxCategoriesExpanded },
+                            modifier = Modifier.testTag("toggle_tax_categories_btn")
+                        ) {
+                            Text(if (isTaxCategoriesExpanded) "Collapse" else "Expand")
+                        }
+                    }
+
+                    if (isTaxCategoriesExpanded) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        val expenseCats = categories.filter { !it.isIncome }
+                        if (expenseCats.isEmpty()) {
+                            Text(
+                                text = "No active expense categories found.",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                            )
+                        } else {
+                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                expenseCats.forEach { cat ->
+                                    val savedRate = categoryTaxRates[cat.id] ?: activeConfig.taxRateDefault
+                                    var editTaxStr by remember(savedRate) { mutableStateOf(savedRate.toString()) }
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = cat.name,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            OutlinedTextField(
+                                                value = editTaxStr,
+                                                onValueChange = { editTaxStr = it },
+                                                singleLine = true,
+                                                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                                    keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                                                ),
+                                                modifier = Modifier
+                                                    .width(100.dp)
+                                                    .height(48.dp)
+                                                    .testTag("tax_input_${cat.id}"),
+                                                colors = OutlinedTextFieldDefaults.colors(
+                                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                                    unfocusedBorderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
+                                                )
+                                            )
+                                            Text(
+                                                text = "%",
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                            IconButton(
+                                                onClick = {
+                                                    val parsedVal = editTaxStr.toDoubleOrNull()
+                                                    if (parsedVal != null && parsedVal >= 0.0) {
+                                                        viewModel.setTaxRateForCategory(cat.id, parsedVal)
+                                                    }
+                                                },
+                                                modifier = Modifier.testTag("update_tax_btn_${cat.id}")
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Check,
+                                                    contentDescription = "Save Tax Rate",
+                                                    tint = FintechGreen
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

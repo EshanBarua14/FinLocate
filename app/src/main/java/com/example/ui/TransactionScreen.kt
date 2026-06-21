@@ -28,6 +28,7 @@ import com.example.ui.theme.AccentGold
 import java.text.SimpleDateFormat
 import java.util.*
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TransactionScreen(
     viewModel: MainViewModel,
@@ -38,8 +39,96 @@ fun TransactionScreen(
     val categories by viewModel.categories.collectAsState()
     val selectedMonth by viewModel.selectedMonth.collectAsState()
     val config by viewModel.activeCountryConfig.collectAsState()
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     var showAddSheet by remember { mutableStateOf(false) }
+
+    // Search and Filter states
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedCategoryIdFilter by remember { mutableStateOf<Long?>(null) }
+    var minAmountQuery by remember { mutableStateOf("") }
+    var maxAmountQuery by remember { mutableStateOf("") }
+    var selectedCurrencyFilter by remember { mutableStateOf<String?>(null) }
+    var customStartDate by remember { mutableStateOf("") }
+    var customEndDate by remember { mutableStateOf("") }
+    
+    // date limit ranges (offsets in millis)
+    var dateRangePreset by remember { mutableStateOf("ALL") } // ALL, 7DAYS, 30DAYS
+    val resolvedStartDate = remember(dateRangePreset) {
+        when (dateRangePreset) {
+            "7DAYS" -> System.currentTimeMillis() - (7L * 24 * 3600 * 1000)
+            "30DAYS" -> System.currentTimeMillis() - (30L * 24 * 3600 * 1000)
+            else -> null
+        }
+    }
+
+    var showAdvancedFilters by remember { mutableStateOf(false) }
+
+    // Compute the robust offline in-memory filtered transactions
+    val displayedTransactions = remember(
+        transactions, searchQuery, selectedCategoryIdFilter, minAmountQuery, maxAmountQuery, 
+        resolvedStartDate, categories, selectedCurrencyFilter, customStartDate, customEndDate, config
+    ) {
+        transactions.filter { tx ->
+            // Search text matching
+            val matchesSearch = if (searchQuery.isEmpty()) {
+                true
+            } else {
+                tx.merchant.contains(searchQuery, ignoreCase = true) ||
+                tx.notes.contains(searchQuery, ignoreCase = true) ||
+                (categories.find { it.id == tx.categoryId }?.name?.contains(searchQuery, ignoreCase = true) == true)
+            }
+
+            // Category matching
+            val matchesCategory = if (selectedCategoryIdFilter == null) {
+                true
+            } else {
+                tx.categoryId == selectedCategoryIdFilter
+            }
+
+            // Amount minimum matching
+            val minAmt = minAmountQuery.toDoubleOrNull()
+            val matchesMin = minAmt == null || tx.amount >= minAmt
+
+            // Amount maximum matching
+            val maxAmt = maxAmountQuery.toDoubleOrNull()
+            val matchesMax = maxAmt == null || tx.amount <= maxAmt
+
+            // Date preset matching
+            val matchesDate = resolvedStartDate == null || tx.timestamp >= resolvedStartDate
+
+            // Custom exact date range matching YYYY-MM-DD
+            val matchesCustomDate = try {
+                if (customStartDate.isEmpty() && customEndDate.isEmpty()) {
+                    true
+                } else {
+                    val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+                    val startMillis = if (customStartDate.isNotEmpty()) sdf.parse(customStartDate)?.time else null
+                    val endMillis = if (customEndDate.isNotEmpty()) {
+                        val parsed = sdf.parse(customEndDate)
+                        parsed?.let { it.time + 24 * 3600 * 1000 - 1 }
+                    } else null
+                    
+                    val matchesStart = startMillis == null || tx.timestamp >= startMillis
+                    val matchesEnd = endMillis == null || tx.timestamp <= endMillis
+                    matchesStart && matchesEnd
+                }
+            } catch (e: Exception) {
+                true
+            }
+
+            // Currency matching
+            val matchesCurrency = if (selectedCurrencyFilter == null) {
+                true
+            } else {
+                val noteStr = tx.notes.lowercase()
+                noteStr.contains(selectedCurrencyFilter!!.lowercase()) || 
+                (selectedCurrencyFilter!! == config.currency && !noteStr.contains("usd") && !noteStr.contains("eur") && !noteStr.contains("gbp") && !noteStr.contains("jpy") && !noteStr.contains("cad") && !noteStr.contains("aud") && !noteStr.contains("inr") && !noteStr.contains("sgd") && !noteStr.contains("bdt"))
+            }
+
+            matchesSearch && matchesCategory && matchesMin && matchesMax && matchesDate && matchesCustomDate && matchesCurrency
+        }
+    }
 
     // Human-readable active month name
     val monthTitle = remember(selectedMonth) {
@@ -106,8 +195,288 @@ fun TransactionScreen(
                 }
             }
 
+            // --- SEARCH AND FILTER INTERACTIVE BAR ---
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Row 1: Main Search TextField & Advanced toggle
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            placeholder = { Text("Search merchant or description...", fontSize = 12.sp) },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Search,
+                                    contentDescription = "Search icon",
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            },
+                            trailingIcon = if (searchQuery.isNotEmpty()) {
+                                {
+                                    IconButton(onClick = { searchQuery = "" }) {
+                                        Icon(
+                                            imageVector = Icons.Default.Close,
+                                            contentDescription = "Clear search",
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+                                }
+                            } else null,
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 12.sp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                                .testTag("search_input_field")
+                        )
+
+                        IconButton(
+                            onClick = { showAdvancedFilters = !showAdvancedFilters },
+                            modifier = Modifier
+                                .size(44.dp)
+                                .background(
+                                    color = if (showAdvancedFilters) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
+                                    shape = RoundedCornerShape(8.dp)
+                                )
+                                .testTag("toggle_filters_btn")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Tune,
+                                contentDescription = "Advanced Filters Toggle",
+                                tint = if (showAdvancedFilters) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
+                        IconButton(
+                            onClick = { viewModel.exportReportToCsv(context) },
+                            modifier = Modifier
+                                .size(44.dp)
+                                .background(
+                                    color = MaterialTheme.colorScheme.surface,
+                                    shape = RoundedCornerShape(8.dp)
+                                )
+                                .testTag("ledger_export_csv_btn")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.FileDownload,
+                                contentDescription = "Export CSV Backup",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+
+                    // Collapsible Advanced Filter Suite
+                    if (showAdvancedFilters) {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.1f))
+                        
+                        // Amount Range Filter Inputs
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedTextField(
+                                value = minAmountQuery,
+                                onValueChange = { if (it.isEmpty() || it.toDoubleOrNull() != null) minAmountQuery = it },
+                                label = { Text("Min Value", fontSize = 9.sp) },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 11.sp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(44.dp)
+                                    .testTag("filter_min_amount")
+                            )
+
+                            OutlinedTextField(
+                                value = maxAmountQuery,
+                                onValueChange = { if (it.isEmpty() || it.toDoubleOrNull() != null) maxAmountQuery = it },
+                                label = { Text("Max Value", fontSize = 9.sp) },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 11.sp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(44.dp)
+                                    .testTag("filter_max_amount")
+                            )
+                        }
+
+                        // Date Range Preset Filter Chips
+                        Column {
+                            Text(
+                                "Date limit metrics:",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                listOf("ALL" to "All Dates", "7DAYS" to "Last 7 days", "30DAYS" to "Last 30 days").forEach { (valStr, labelVal) ->
+                                    val isSelected = dateRangePreset == valStr
+                                    FilterChip(
+                                        selected = isSelected,
+                                        onClick = { dateRangePreset = valStr },
+                                        label = { Text(labelVal, fontSize = 10.sp) },
+                                        modifier = Modifier.testTag("chip_date_$valStr")
+                                    )
+                                }
+                            }
+                        }
+
+                        // Custom Date Range Inputs
+                        Column {
+                            Text(
+                                "Custom Date Range (YYYY-MM-DD):",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = customStartDate,
+                                    onValueChange = { customStartDate = it },
+                                    placeholder = { Text("Start e.g. 2026-06-01", fontSize = 11.sp) },
+                                    singleLine = true,
+                                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 11.sp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(44.dp)
+                                        .testTag("filter_custom_start_date")
+                                )
+                                OutlinedTextField(
+                                    value = customEndDate,
+                                    onValueChange = { customEndDate = it },
+                                    placeholder = { Text("End e.g. 2026-06-30", fontSize = 11.sp) },
+                                    singleLine = true,
+                                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 11.sp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(44.dp)
+                                        .testTag("filter_custom_end_date")
+                                )
+                            }
+                        }
+
+                        // Category Filter Dropdown / Tap selections
+                        Column {
+                            Text(
+                                "Filter by specific category:",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                item {
+                                    val isAllSelected = selectedCategoryIdFilter == null
+                                    FilterChip(
+                                        selected = isAllSelected,
+                                        onClick = { selectedCategoryIdFilter = null },
+                                        label = { Text("All Categories", fontSize = 10.sp) },
+                                        modifier = Modifier.testTag("chip_category_all")
+                                    )
+                                }
+                                items(categories) { cat ->
+                                    val isSelected = selectedCategoryIdFilter == cat.id
+                                    FilterChip(
+                                        selected = isSelected,
+                                        onClick = { selectedCategoryIdFilter = cat.id },
+                                        label = { Text(cat.name, fontSize = 10.sp) },
+                                        modifier = Modifier.testTag("chip_category_${cat.id}")
+                                    )
+                                }
+                            }
+                        }
+
+                        // Currency Filter Tag selector
+                        Column {
+                            Text(
+                                "Filter by currency tag:",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                item {
+                                    val isAllSelected = selectedCurrencyFilter == null
+                                    FilterChip(
+                                        selected = isAllSelected,
+                                        onClick = { selectedCurrencyFilter = null },
+                                        label = { Text("All Currencies", fontSize = 10.sp) },
+                                        modifier = Modifier.testTag("chip_currency_all")
+                                    )
+                                }
+                                val currencies = listOf("USD", "EUR", "GBP", "JPY", "CAD", "AUD", "INR", "SGD", "BDT")
+                                items(currencies) { curr ->
+                                    val isSelected = selectedCurrencyFilter == curr
+                                    FilterChip(
+                                        selected = isSelected,
+                                        onClick = { selectedCurrencyFilter = curr },
+                                        label = { Text(curr, fontSize = 10.sp) },
+                                        modifier = Modifier.testTag("chip_currency_$curr")
+                                    )
+                                }
+                            }
+                        }
+
+                        // Reset Button Row
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End
+                        ) {
+                            TextButton(
+                                onClick = {
+                                    searchQuery = ""
+                                    selectedCategoryIdFilter = null
+                                    minAmountQuery = ""
+                                    maxAmountQuery = ""
+                                    selectedCurrencyFilter = null
+                                    customStartDate = ""
+                                    customEndDate = ""
+                                    dateRangePreset = "ALL"
+                                },
+                                modifier = Modifier.height(32.dp).testTag("reset_filters_btn")
+                            ) {
+                                Icon(imageVector = Icons.Default.Refresh, contentDescription = "Reset Filters", modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Reset filters", fontSize = 10.sp)
+                            }
+                        }
+                    }
+                }
+            }
+
             // --- HISTORIC ENTRIES LIST ---
-            if (transactions.isEmpty()) {
+            if (displayedTransactions.isEmpty()) {
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -126,14 +495,18 @@ fun TransactionScreen(
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = "NO TRANSACTIONS IN $monthTitle",
+                            text = if (searchQuery.isNotEmpty() || selectedCategoryIdFilter != null || minAmountQuery.isNotEmpty() || maxAmountQuery.isNotEmpty() || dateRangePreset != "ALL") {
+                                "NO RESULTS MATCH THOSE FILTERS"
+                            } else {
+                                "NO TRANSACTIONS IN $monthTitle"
+                            },
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
                             fontSize = 14.sp
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Tap the '+' floating button to initiate rapid logging.",
+                            text = "Try clearing active query variables or add new entries.",
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f)
                         )
@@ -147,7 +520,7 @@ fun TransactionScreen(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    items(transactions, key = { it.id }) { tx ->
+                    items(displayedTransactions, key = { it.id }) { tx ->
                         TransactionItemRow(
                             transaction = tx,
                             account = accounts.find { it.id == tx.accountId },
