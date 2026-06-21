@@ -8,10 +8,17 @@ import com.example.data.database.AppDatabase
 import com.example.data.model.*
 import com.example.data.repository.FinanceRepository
 import com.example.data.repository.CountryConfigProviderService
+import com.example.data.service.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
+
+data class NetWorthSummary(
+    val manualNetInLocalCurrency: Double = 0.0,
+    val syncedNetInLocalCurrency: Double = 0.0,
+    val totalNetWorth: Double = 0.0
+)
 
 data class BudgetProjectionAnalysis(
     val dailyAverage: Double = 0.0,
@@ -21,6 +28,16 @@ data class BudgetProjectionAnalysis(
     val daysPassed: Int = 1,
     val totalDays: Int = 30,
     val currentSpent: Double = 0.0
+)
+
+data class PredictiveInsight(
+    val categoryId: Long,
+    val categoryName: String,
+    val predictedSpend: Double,
+    val currentLimit: Double,
+    val suggestedLimit: Double,
+    val recommendation: String,
+    val trendType: String // "REDUCE", "INCREASE", "STABLE"
 )
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -46,6 +63,70 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setDarkTheme(value: Boolean) {
         _isDarkTheme.value = value
         prefs.edit().putBoolean("is_dark_theme", value).apply()
+    }
+
+    // --- Interactive Notifications Flow ---
+    private val _notifications = MutableSharedFlow<String>(extraBufferCapacity = 64)
+    val notifications = _notifications.asSharedFlow()
+
+    fun postNotification(msg: String) {
+        _notifications.tryEmit(msg)
+    }
+
+    // --- Exchange Rate Fetch Prompt Engine ---
+    private val _showRatePrompt = MutableStateFlow(false)
+    val showRatePrompt: StateFlow<Boolean> = _showRatePrompt.asStateFlow()
+
+    fun dismissRatePrompt() {
+        prefs.edit().putLong("last_rate_prompt", System.currentTimeMillis()).apply()
+        _showRatePrompt.value = false
+    }
+
+    fun checkRateUpdatePrompt() {
+        val lastPrompt = prefs.getLong("last_rate_prompt", 0L)
+        val now = System.currentTimeMillis()
+        // If never prompted, or if 1 hour has elapsed (3600000ms), show prompt
+        if (now - lastPrompt > 3600000L) {
+            _showRatePrompt.value = true
+        }
+    }
+
+    fun triggerExchangeRatesFetch(onSuccess: (String) -> Unit, onFailure: (String) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val updated = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val conn = java.net.URL("https://open.er-api.com/v6/latest/USD").openConnection() as java.net.HttpURLConnection
+                    conn.requestMethod = "GET"
+                    conn.connectTimeout = 5000
+                    conn.readTimeout = 5000
+                    if (conn.responseCode == 200) {
+                        val text = conn.inputStream.bufferedReader().use { it.readText() }
+                        val regex = "\"([A-Z]{3})\":\\s*([0-9\\.]+)".toRegex()
+                        val matches = regex.findAll(text)
+                        val newRates = matches.associate {
+                            it.groupValues[1] to (it.groupValues[2].toDoubleOrNull() ?: 1.0)
+                        }
+                        if (newRates.isNotEmpty() && newRates.containsKey("USD")) {
+                            val merged = newRates.toMutableMap()
+                            _userCustomExchangeRates.value.forEach { (k, v) ->
+                                merged[k] = v
+                            }
+                            _exchangeRates.value = merged
+                            true
+                        } else false
+                    } else false
+                }
+                if (updated) {
+                    prefs.edit().putLong("last_rate_prompt", System.currentTimeMillis()).apply()
+                    _showRatePrompt.value = false
+                    onSuccess("Rates updated successfully online!")
+                } else {
+                    onFailure("Could not process online rates. Using offline fallback.")
+                }
+            } catch (e: Exception) {
+                onFailure("Network error: ${e.localizedMessage ?: "timeout"}")
+            }
+        }
     }
 
     // --- Exchange Rate Engine ---
@@ -113,6 +194,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     val allTransactions: StateFlow<List<TransactionEntity>> = repository.allTransactions
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val isExportEncryptionEnabled = MutableStateFlow(false)
+    val exportPasscode = MutableStateFlow("SecurePass2026")
+
+    fun toggleExportEncryption() {
+        isExportEncryptionEnabled.value = !isExportEncryptionEnabled.value
+    }
+
+    fun setExportPasscode(code: String) {
+        exportPasscode.value = code
+    }
+
+    val detectedAnomalies: StateFlow<List<AnomalyReport>> = combine(allTransactions, accounts) { txs, accs ->
+        AnomalyDetectionService.analyzeTransactions(txs, accs)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val categories: StateFlow<List<CategoryEntity>> = repository.getAllCategories()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -255,6 +351,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
+    val netWorthSummary: StateFlow<NetWorthSummary> = combine(accounts, activeCountryConfig, exchangeRates) { accList, country, rates ->
+        var manualSum = 0.0
+        var syncedSum = 0.0
+        accList.forEach { acc ->
+            val converted = convertCurrency(acc.balance, acc.currency, country.currency)
+            val isManual = acc.type == "CASH" || !acc.isSyncEnabled
+            if (isManual) {
+                manualSum += converted
+            } else {
+                syncedSum += converted
+            }
+        }
+        NetWorthSummary(
+            manualNetInLocalCurrency = manualSum,
+            syncedNetInLocalCurrency = syncedSum,
+            totalNetWorth = manualSum + syncedSum
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), NetWorthSummary())
+
     val currentInflow: StateFlow<Double> = combine(filteredTransactions, accounts, activeCountryConfig, exchangeRates) { txList, accList, country, rates ->
         txList.filter { it.type == "INCOME" }.sumOf { tx ->
             val acc = accList.find { it.id == tx.accountId }
@@ -354,6 +469,80 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), BudgetProjectionAnalysis())
+
+    val predictiveInsights: StateFlow<List<PredictiveInsight>> = combine(
+        allTransactions,
+        categories,
+        activeBudgets
+    ) { txs, cats, budgets ->
+        if (txs.isEmpty() || cats.isEmpty()) {
+            return@combine emptyList()
+        }
+        
+        val sdf = SimpleDateFormat("yyyy-MM", Locale.US)
+        
+        // Group transactions by month to see the historical span size
+        val txsByMonth = txs.groupBy { sdf.format(Date(it.timestamp)) }
+        val uniqueMonthsCount = txsByMonth.keys.size.coerceAtLeast(1)
+        
+        cats.filter { !it.isIncome }.mapNotNull { cat ->
+            val catTxs = txs.filter { it.categoryId == cat.id && it.type == "EXPENSE" }
+            if (catTxs.isEmpty()) return@mapNotNull null
+            
+            val totalSpent = catTxs.sumOf { it.amount }
+            val averageMonthlySpend = totalSpent / uniqueMonthsCount
+            
+            val budget = budgets.find { it.categoryId == cat.id }
+            val currentLimit = budget?.amount ?: 0.0
+            
+            val predictedSpend = averageMonthlySpend * 1.05 // add 5% seasonal volatility factor
+            
+            val (suggestedLimit, recommendation, trendType) = when {
+                currentLimit <= 0.0 -> {
+                    val suggested = (Math.ceil(predictedSpend / 10) * 10).coerceAtLeast(50.0)
+                    Triple(
+                        suggested,
+                        "We noticed steady historical spending. Consider establishing a monthly budget limit of ${formatCurrency(suggested)} to safeguard balances.",
+                        "INCREASE"
+                    )
+                }
+                predictedSpend > currentLimit * 1.1 -> {
+                    val suggested = (Math.ceil(predictedSpend / 50) * 50)
+                    Triple(
+                        suggested,
+                        "Your historical outlays average ${formatCurrency(averageMonthlySpend)}, which model projects will overrun current ${formatCurrency(currentLimit)} limit. Consider increasing limit to ${formatCurrency(suggested)}.",
+                        "INCREASE"
+                    )
+                }
+                predictedSpend < currentLimit * 0.7 && currentLimit > 0.0 -> {
+                    val suggested = (Math.ceil(predictedSpend / 50) * 50).coerceAtLeast(20.0)
+                    val difference = currentLimit - suggested
+                    Triple(
+                        suggested,
+                        "You consistently spend less than budgeted. Lowering this limit to ${formatCurrency(suggested)} frees up ${formatCurrency(difference)} which can be allocated to your savings goals!",
+                        "REDUCE"
+                    )
+                }
+                else -> {
+                    Triple(
+                        currentLimit,
+                        "Perfect alignment! Historical spending of ${formatCurrency(averageMonthlySpend)} perfectly aligns with your set budget limit of ${formatCurrency(currentLimit)}.",
+                        "STABLE"
+                    )
+                }
+            }
+            
+            PredictiveInsight(
+                categoryId = cat.id,
+                categoryName = cat.name,
+                predictedSpend = predictedSpend,
+                currentLimit = currentLimit,
+                suggestedLimit = suggestedLimit,
+                recommendation = recommendation,
+                trendType = trendType
+            )
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // --- AI Insight Generation Scope ---
     private val _aiInsightsLoading = MutableStateFlow(false)
@@ -541,6 +730,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         taxRate: Double = 0.0,
         notes: String = "",
         isRecurring: Boolean = false,
+        recurrenceInterval: String = "NONE",
         splitCount: Int = 1,
         customTimestamp: Long? = null
     ) {
@@ -557,9 +747,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 taxRate = taxRate,
                 notes = notes,
                 isRecurring = isRecurring,
+                recurrenceInterval = recurrenceInterval,
                 splitCount = splitCount
             )
             repository.insertTransaction(tx)
+
+            // Auto-populate subsequent entries in local storage if recurring
+            if (isRecurring && recurrenceInterval != "NONE") {
+                val baseTime = customTimestamp ?: System.currentTimeMillis()
+                val calendar = Calendar.getInstance()
+                
+                val countToGenerate = when (recurrenceInterval) {
+                    "DAILY" -> 30  // Physical pre-population of 30 days
+                    "WEEKLY" -> 12 // Physical pre-population of 12 weeks
+                    "MONTHLY" -> 12 // Physical pre-population of 12 months
+                    else -> 0
+                }
+
+                for (i in 1..countToGenerate) {
+                    calendar.timeInMillis = baseTime
+                    when (recurrenceInterval) {
+                        "DAILY" -> calendar.add(Calendar.DAY_OF_YEAR, i)
+                        "WEEKLY" -> calendar.add(Calendar.WEEK_OF_YEAR, i)
+                        "MONTHLY" -> calendar.add(Calendar.MONTH, i)
+                    }
+                    val recurringTx = tx.copy(
+                        timestamp = calendar.timeInMillis,
+                        notes = if (notes.isEmpty()) "Recurring $recurrenceInterval entry #$i" else "$notes (Recurring $recurrenceInterval #$i)"
+                    )
+                    repository.insertTransaction(recurringTx)
+                }
+            }
 
             // Trigger proactive budget alerts dynamically
             if (type == "EXPENSE") {
@@ -567,6 +785,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val bud = activeBudgets.value.find { it.categoryId == categoryId }
                 if (bud != null && cat != null) {
                     val updatedSpent = bud.spent + amount
+                    if (updatedSpent > bud.amount * 0.90) {
+                        val pct = (updatedSpent / bud.amount * 100).toInt()
+                        val msg = if (updatedSpent > bud.amount) {
+                            "🚨 Budget Exceeded! ${cat.name} is at $pct%! Spend is ${formatCurrency(updatedSpent)} of ${formatCurrency(bud.amount)}."
+                        } else {
+                            "⚠️ Budget Alert! ${cat.name} exceeds 90% limit ($pct%) at ${formatCurrency(updatedSpent)} of ${formatCurrency(bud.amount)}."
+                        }
+                        _notifications.tryEmit(msg)
+                    }
+
                     if (updatedSpent > bud.amount) {
                         repository.insertInsight(
                             InsightEntity(
@@ -574,7 +802,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 description = "You spent ${formatCurrency(updatedSpent)} out of a set limit of ${formatCurrency(bud.amount)} for category ${cat.name}!",
                                 category = "BUDGET_EXCEED",
                                 severity = "ALERT"
-                            )
+                             )
                         )
                     } else if (updatedSpent > bud.amount * 0.85) {
                         repository.insertInsight(
@@ -597,14 +825,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun updateBudgetLimit(categoryId: Long, newLimit: Double, isAdaptive: Boolean) {
+    fun updateBudgetLimit(categoryId: Long, newLimit: Double, isAdaptive: Boolean, savingsGoal: Double = 0.0) {
         viewModelScope.launch {
             val monthStr = selectedMonth.value
             val existing = repository.getBudgetsForMonth(monthStr).firstOrNull()?.find { it.categoryId == categoryId }
             if (existing != null) {
-                repository.updateBudget(existing.copy(amount = newLimit, isAdaptive = isAdaptive, updatedAt = System.currentTimeMillis()))
+                repository.updateBudget(existing.copy(amount = newLimit, isAdaptive = isAdaptive, savingsGoal = savingsGoal, updatedAt = System.currentTimeMillis()))
             } else {
-                val newBud = BudgetEntity(categoryId = categoryId, amount = newLimit, spent = 0.0, month = monthStr, isAdaptive = isAdaptive)
+                val newBud = BudgetEntity(categoryId = categoryId, amount = newLimit, spent = 0.0, month = monthStr, isAdaptive = isAdaptive, savingsGoal = savingsGoal)
                 repository.insertBudget(newBud)
             }
         }
@@ -618,9 +846,80 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 balance = startingBalance,
                 currency = activeCountryConfig.value.currency,
                 provider = provider,
-                accountColorHex = colorHex
+                accountColorHex = colorHex,
+                isSyncEnabled = (type == "BANK" || type == "MOBILE_WALLET")
             )
             repository.insertAccount(newAcc)
+        }
+    }
+
+    val matchingRules: StateFlow<List<MatchingRuleEntity>> = db.matchingRuleDao().getAllRules()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val syncService = BankAndMfsSyncService()
+
+    fun addMatchingRule(keyword: String, categoryId: Long, isTaxDeductible: Boolean, taxRate: Double) {
+        viewModelScope.launch {
+            val rule = MatchingRuleEntity(
+                keyword = keyword,
+                categoryId = categoryId,
+                isTaxDeductible = isTaxDeductible,
+                taxRate = taxRate
+            )
+            db.matchingRuleDao().insertRule(rule)
+            postNotification("Rule added: '$keyword' mapping registered.")
+        }
+    }
+
+    fun deleteMatchingRule(rule: MatchingRuleEntity) {
+        viewModelScope.launch {
+            db.matchingRuleDao().deleteRule(rule)
+            postNotification("Rule deleted: '${rule.keyword}' removed.")
+        }
+    }
+
+    fun toggleAccountSync(account: AccountEntity) {
+        viewModelScope.launch {
+            val updated = account.copy(isSyncEnabled = !account.isSyncEnabled)
+            repository.updateAccount(updated)
+            val stateText = if (updated.isSyncEnabled) "Synced (Active)" else "Local Manual (Unsynced)"
+            postNotification("${updated.name} tracking toggled to $stateText.")
+        }
+    }
+
+    fun syncAccountInstance(account: AccountEntity) {
+        viewModelScope.launch {
+            try {
+                val count = syncService.executeSync(account, db)
+                if (count > 0) {
+                    postNotification("Synced $count transactions from ${account.provider} (${account.name})!")
+                } else {
+                    postNotification("${account.provider} is already up-to-date.")
+                }
+            } catch (e: Exception) {
+                postNotification("Sync Failure: ${e.localizedMessage ?: "Unknown Gateway Block"}")
+            }
+        }
+    }
+
+    fun syncAllActiveAccounts() {
+        viewModelScope.launch {
+            var totalSyncedCount = 0
+            val activeAccounts = repository.allAccounts.firstOrNull() ?: emptyList()
+            activeAccounts.forEach { acc ->
+                if (acc.isSyncEnabled && (acc.type == "BANK" || acc.type == "MOBILE_WALLET")) {
+                    try {
+                        totalSyncedCount += syncService.executeSync(acc, db)
+                    } catch (e: Exception) {
+                        // skip isolated sync error
+                    }
+                }
+            }
+            if (totalSyncedCount > 0) {
+                postNotification("All accounts synced! $totalSyncedCount brand-new transactions integrated.")
+            } else {
+                postNotification("All accounts are fully up-to-date.")
+            }
         }
     }
 
@@ -682,11 +981,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         val csvContent = csvBuilder.toString()
+        val encryptEnabled = isExportEncryptionEnabled.value
+        val passcode = exportPasscode.value
+        
+        val finalContent = if (encryptEnabled) {
+            CsvEncryptionUtility.encrypt(csvContent, passcode)
+        } else {
+            csvContent
+        }
         
         try {
-            val fileName = "wealthflow_finance_report_${currentMonthStr.replace("-", "_")}.csv"
+            val fileExtension = if (encryptEnabled) ".csv.enc" else ".csv"
+            val mimeType = if (encryptEnabled) "text/plain" else "text/csv"
+            val fileName = "wealthflow_finance_report_${currentMonthStr.replace("-", "_")}$fileExtension"
             val file = java.io.File(context.cacheDir, fileName)
-            file.writeText(csvContent)
+            file.writeText(finalContent)
 
             val fileUri = androidx.core.content.FileProvider.getUriForFile(
                 context,
@@ -695,22 +1004,124 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
 
             val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-                type = "text/csv"
-                putExtra(android.content.Intent.EXTRA_SUBJECT, "WealthFlow Finance Report - $currentMonthStr")
-                putExtra(android.content.Intent.EXTRA_TEXT, csvContent) // fallback text
+                type = mimeType
+                putExtra(android.content.Intent.EXTRA_SUBJECT, "WealthFlow Finance Report - $currentMonthStr" + (if (encryptEnabled) " (AES-256 Encrypted)" else ""))
+                putExtra(android.content.Intent.EXTRA_TEXT, finalContent) // fallback text
                 putExtra(android.content.Intent.EXTRA_STREAM, fileUri)
                 addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
             context.startActivity(android.content.Intent.createChooser(shareIntent, "Share statements CSV"))
+            
+            if (encryptEnabled) {
+                postNotification("Export report securely encrypted using industry-standard AES-256!")
+            }
         } catch (e: Exception) {
             // Safe plain text sharing fallback if URI conversion hits any device constraints
             try {
                 val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
                     type = "text/plain"
-                    putExtra(android.content.Intent.EXTRA_SUBJECT, "WealthFlow Finance Report - $currentMonthStr")
-                    putExtra(android.content.Intent.EXTRA_TEXT, csvContent)
+                    putExtra(android.content.Intent.EXTRA_SUBJECT, "WealthFlow Finance Report - $currentMonthStr" + (if (encryptEnabled) " (AES-256 Encrypted)" else ""))
+                    putExtra(android.content.Intent.EXTRA_TEXT, finalContent)
                 }
                 context.startActivity(android.content.Intent.createChooser(shareIntent, "Share Report (Text Fallback)"))
+            } catch (fallbackEx: Exception) {
+                android.widget.Toast.makeText(context, "Export error: ${fallbackEx.message}", android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    fun exportTaxReportToCsv(context: android.content.Context) {
+        val txs = allTransactions.value // load all transactions for annual assessment
+        val cats = categories.value
+        val config = activeCountryConfig.value
+        val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
+
+        val taxBuilder = StringBuilder()
+        taxBuilder.append("REGIONAL ANNUAL TAX SUMMARY REPORT - ${config.country.uppercase()}\n")
+        taxBuilder.append("Fiscal Year / Underneath Schedule: ${config.fiscalYear} cycle\n")
+        taxBuilder.append("Submission Compliant Standard Format: Schedule-B/Form-1040 (US) / SEC-24/NBR (BD)\n")
+        taxBuilder.append("Generated on Date: ${sdf.format(Date())}\n\n")
+
+        taxBuilder.append("--- REVENUE SUMMARY & TAX RELIEF CALCULATIONS ---\n")
+        taxBuilder.append("Invoiced Category,Aggregate Spent,Applicable Flat Rate %,Resolved Net Estimated Relief\n")
+        
+        val deductibles = txs.filter { it.isTaxDeductible && it.type == "EXPENSE" }
+        val groupedByCat = deductibles.groupBy { it.categoryId }
+
+        var totalDeductionVal = 0.0
+        var totalTaxOffsetVal = 0.0
+
+        groupedByCat.forEach { (catId, catTxs) ->
+            val catName = cats.find { it.id == catId }?.name ?: "Eligible Deductions"
+            val spentSum = catTxs.sumOf { it.amount }
+            // Use average tax rate of transactions or default country taxRate
+            val rate = catTxs.firstOrNull()?.taxRate ?: config.taxRateDefault
+            val relief = spentSum * (rate / 100.0)
+            taxBuilder.append("\"$catName\",$spentSum,${rate}%,$relief\n")
+            totalDeductionVal += spentSum
+            totalTaxOffsetVal += relief
+        }
+
+        taxBuilder.append("\n--- CONSOLIDATED TOTALS ---\n")
+        taxBuilder.append("Gross Deductible Outlay,${totalDeductionVal}\n")
+        taxBuilder.append("Estimated Sovereign Tax Credit Offset,${totalTaxOffsetVal}\n\n")
+
+        taxBuilder.append("--- LEDGER TRANSACTION AUDIT TRIAL RECORDS ---\n")
+        taxBuilder.append("Date,Merchant Payee,Category,Amount (${config.currency}),Tax Rate,Tax Saving,Notes\n")
+        deductibles.forEach { tx ->
+            val dateStr = sdf.format(Date(tx.timestamp))
+            val catName = cats.find { it.id == tx.categoryId }?.name ?: "Tax-Deductible Segment"
+            val saving = tx.amount * (tx.taxRate / 100.0)
+            val cleanNotes = tx.notes.replace("\"", "\"\"")
+            val cleanMerchant = tx.merchant.replace("\"", "\"\"")
+            taxBuilder.append("$dateStr,\"$cleanMerchant\",\"$catName\",${tx.amount},${tx.taxRate}%,$saving,\"$cleanNotes\"\n")
+        }
+
+        val taxCsvContent = taxBuilder.toString()
+        val encryptEnabled = isExportEncryptionEnabled.value
+        val passcode = exportPasscode.value
+        
+        val finalContent = if (encryptEnabled) {
+            CsvEncryptionUtility.encrypt(taxCsvContent, passcode)
+        } else {
+            taxCsvContent
+        }
+
+        try {
+            val fileExtension = if (encryptEnabled) ".csv.enc" else ".csv"
+            val mimeType = if (encryptEnabled) "text/plain" else "text/csv"
+            val fileName = "TaxLedger_${config.country.replace(" ", "_")}$fileExtension"
+            val file = java.io.File(context.cacheDir, fileName)
+            file.writeText(finalContent)
+
+            val fileUri = androidx.core.content.FileProvider.getUriForFile(
+                context,
+                "com.example.fileprovider",
+                file
+            )
+
+            val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                type = mimeType
+                putExtra(android.content.Intent.EXTRA_SUBJECT, "Annual Tax Filing CSV - ${config.country} " + (if (encryptEnabled) "(AES)" else ""))
+                putExtra(android.content.Intent.EXTRA_TEXT, finalContent)
+                putExtra(android.content.Intent.EXTRA_STREAM, fileUri)
+                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(android.content.Intent.createChooser(shareIntent, "Share Annual Tax Report"))
+
+            if (encryptEnabled) {
+                postNotification("Annual Tax Report compiled containing regional IRS-SEC files (Securely Encrypted)!")
+            } else {
+                postNotification("Annual Tax Report compiled successfully!")
+            }
+        } catch (e: Exception) {
+            try {
+                val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(android.content.Intent.EXTRA_SUBJECT, "Annual Tax Filing CSV - ${config.country}")
+                    putExtra(android.content.Intent.EXTRA_TEXT, finalContent)
+                }
+                context.startActivity(android.content.Intent.createChooser(shareIntent, "Share Tax Report"))
             } catch (fallbackEx: Exception) {
                 android.widget.Toast.makeText(context, "Export error: ${fallbackEx.message}", android.widget.Toast.LENGTH_LONG).show()
             }

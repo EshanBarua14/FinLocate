@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -42,6 +43,8 @@ fun BudgetScreen(
     val config by viewModel.activeCountryConfig.collectAsState()
     val inflow by viewModel.currentInflow.collectAsState()
     val outflow by viewModel.currentOutflow.collectAsState()
+    val predictiveInsights by viewModel.predictiveInsights.collectAsState()
+    var showAllInsights by remember { mutableStateOf(false) }
 
     var editingBudget by remember { mutableStateOf<BudgetEntity?>(null) }
     var selectedCategoryIdForNew by remember { mutableStateOf(0L) }
@@ -182,6 +185,145 @@ fun BudgetScreen(
                 }
             }
 
+            // --- MODEL-BASED PREDICTIVE SPENDING GAUGE ---
+            if (predictiveInsights.isNotEmpty()) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Icon(
+                                    imageVector = Icons.Default.TrendingUp,
+                                    contentDescription = "Predictive Insights",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Text(
+                                    text = "AI SPENDING PREDICTIONS & ADJUSTMENTS",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    letterSpacing = 0.5.sp
+                                )
+                            }
+                            TextButton(
+                                onClick = { showAllInsights = !showAllInsights },
+                                contentPadding = PaddingValues(0.dp)
+                            ) {
+                                Text(
+                                    text = if (showAllInsights) "Collapse" else "View All (${predictiveInsights.size})",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        Text(
+                            text = "Based on historical transactions, our prediction engine forecasts category trend adjustments to secure targets.",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        )
+
+                        val displayedInsights = if (showAllInsights) predictiveInsights else listOf(predictiveInsights.first())
+                        displayedInsights.forEach { insight ->
+                            val trendColor = when (insight.trendType) {
+                                "REDUCE" -> FintechGreen
+                                "INCREASE" -> ExpenseRose
+                                else -> MaterialTheme.colorScheme.primary
+                            }
+                            val badgeText = when (insight.trendType) {
+                                "REDUCE" -> "Saves Money (REDUCE)"
+                                "INCREASE" -> "Overrun Predicted (INCREASE)"
+                                else -> "ALIGNED"
+                            }
+                            
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.03f), RoundedCornerShape(12.dp))
+                                    .padding(12.dp)
+                            ) {
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = insight.categoryName,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .background(trendColor.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text(
+                                                text = badgeText,
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = trendColor
+                                            )
+                                        }
+                                    }
+
+                                    Text(
+                                        text = insight.recommendation,
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                                        lineHeight = 15.sp
+                                    )
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "Future Forecast: ${viewModel.formatCurrency(insight.predictedSpend)}",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                                        )
+                                        if (insight.currentLimit != insight.suggestedLimit) {
+                                            Button(
+                                                onClick = {
+                                                    viewModel.updateBudgetLimit(insight.categoryId, insight.suggestedLimit, false, 0.0)
+                                                },
+                                                colors = ButtonDefaults.buttonColors(
+                                                    containerColor = trendColor.copy(alpha = 0.15f),
+                                                    contentColor = trendColor
+                                                ),
+                                                shape = RoundedCornerShape(6.dp),
+                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                                modifier = Modifier.height(26.dp)
+                                            ) {
+                                                Text("Apply Limit: ${viewModel.formatCurrency(insight.suggestedLimit)}", fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // AI RECOMMENDER SHOUTOUT BAR
             Card(
                 modifier = Modifier
@@ -272,6 +414,7 @@ fun BudgetScreen(
         if (editingBudget != null) {
             val targetCategoryName = categories.find { it.id == editingBudget!!.categoryId }?.name ?: "Category"
             var limitInput by remember { mutableStateOf(editingBudget!!.amount.toInt().toString()) }
+            var savingsGoalInput by remember { mutableStateOf(editingBudget!!.savingsGoal.toInt().toString()) }
             var isAdaptiveState by remember { mutableStateOf(editingBudget!!.isAdaptive) }
 
             AlertDialog(
@@ -286,6 +429,15 @@ fun BudgetScreen(
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth().testTag("edit_budget_input")
+                        )
+
+                        OutlinedTextField(
+                            value = savingsGoalInput,
+                            onValueChange = { savingsGoalInput = it },
+                            label = { Text("Savings Goal (${config.currencySymbol}) - Optional") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth().testTag("edit_budget_savings_goal")
                         )
 
                         Row(
@@ -309,8 +461,9 @@ fun BudgetScreen(
                     Button(
                         onClick = {
                             val lim = limitInput.toDoubleOrNull() ?: 0.0
+                            val targetGoal = savingsGoalInput.toDoubleOrNull() ?: 0.0
                             if (lim >= 0) {
-                                viewModel.updateBudgetLimit(editingBudget!!.categoryId, lim, isAdaptiveState)
+                                viewModel.updateBudgetLimit(editingBudget!!.categoryId, lim, isAdaptiveState, targetGoal)
                             }
                             editingBudget = null
                         },
@@ -335,6 +488,7 @@ fun BudgetScreen(
             }
 
             var limitInput by remember { mutableStateOf("5000") }
+            var savingsGoalInput by remember { mutableStateOf("0") }
             var isAdaptiveState by remember { mutableStateOf(true) }
 
             AlertDialog(
@@ -373,6 +527,15 @@ fun BudgetScreen(
                             modifier = Modifier.fillMaxWidth().testTag("new_budget_input")
                         )
 
+                        OutlinedTextField(
+                            value = savingsGoalInput,
+                            onValueChange = { savingsGoalInput = it },
+                            label = { Text("Savings Goal (${config.currencySymbol}) - Optional") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth().testTag("new_budget_savings_goal")
+                        )
+
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -394,8 +557,9 @@ fun BudgetScreen(
                     Button(
                         onClick = {
                             val lim = limitInput.toDoubleOrNull() ?: 0.0
+                            val targetGoal = savingsGoalInput.toDoubleOrNull() ?: 0.0
                             if (selectedCategoryIdForNew != 0L && lim >= 0) {
-                                viewModel.updateBudgetLimit(selectedCategoryIdForNew, lim, isAdaptiveState)
+                                viewModel.updateBudgetLimit(selectedCategoryIdForNew, lim, isAdaptiveState, targetGoal)
                             }
                             showCreateDialog = false
                         },
@@ -517,6 +681,62 @@ fun BudgetCardItem(
                 Column(horizontalAlignment = Alignment.End) {
                     Text(text = "LIMIT ALLOTTED", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f))
                     Text(text = formatter(budget.amount), fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
+                }
+            }
+
+            if (budget.savingsGoal > 0.0) {
+                Spacer(modifier = Modifier.height(12.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                Spacer(modifier = Modifier.height(10.dp))
+                
+                val actualSavings = (budget.amount - budget.spent).coerceAtLeast(0.0)
+                val savingsPct = if (budget.savingsGoal > 0.0) (actualSavings / budget.savingsGoal).toFloat() else 0f
+                val goalAchieved = actualSavings >= budget.savingsGoal
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = "SAVINGS GOAL PROGRESS",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = if (goalAchieved) "GOAL COMPLETED! 🎉" else "Saved ${formatter(actualSavings)} of ${formatter(budget.savingsGoal)}",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (goalAchieved) FintechGreen else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        )
+                    }
+                    Text(
+                        text = "${(savingsPct * 100).toInt()}%",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Black,
+                        color = if (goalAchieved) FintechGreen else MaterialTheme.colorScheme.primary
+                    )
+                }
+                
+                Spacer(modifier = Modifier.height(6.dp))
+                
+                // Savings goal progress bar
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(8.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth(kotlin.math.min(savingsPct, 1.0f))
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(if (goalAchieved) FintechGreen else FintechGreen.copy(alpha = 0.6f))
+                    )
                 }
             }
         }

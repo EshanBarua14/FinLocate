@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -69,6 +70,13 @@ class MainActivity : FragmentActivity() {
             val isDarkTheme by viewModel.isDarkTheme.collectAsState()
             MyApplicationTheme(darkTheme = isDarkTheme, dynamicColor = false) {
                 if (!isUnlocked) {
+                    val sharedPrefs = remember { getSharedPreferences("wealthflow_security_prefs", MODE_PRIVATE) }
+                    var savedPin by remember { mutableStateOf(sharedPrefs.getString("secure_pin", "") ?: "") }
+                    var pinFlowState by remember { mutableStateOf(if (savedPin.isEmpty()) "CREATE" else "ENTER") }
+                    var pinInput by remember { mutableStateOf("") }
+                    var tempFirstPin by remember { mutableStateOf("") }
+                    var errorMessage by remember { mutableStateOf("") }
+
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -79,7 +87,7 @@ class MainActivity : FragmentActivity() {
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(16.dp)
+                                .padding(vertical = 16.dp)
                                 .testTag("biometric_security_card"),
                             shape = RoundedCornerShape(24.dp),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -88,59 +96,204 @@ class MainActivity : FragmentActivity() {
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(24.dp),
+                                    .padding(vertical = 24.dp, horizontal = 16.dp),
                                 horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(16.dp)
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.Lock,
+                                    imageVector = if (pinFlowState == "CREATE" || pinFlowState == "CONFIRM") Icons.Default.LockOpen else Icons.Default.Lock,
                                     contentDescription = "Safe Lock",
                                     tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(64.dp)
+                                    modifier = Modifier.size(56.dp)
                                 )
                                 Text(
-                                    text = "WEALTHFLOW SECURITY",
+                                    text = if (pinFlowState == "CREATE") "SET PRIVACY PIN" else if (pinFlowState == "CONFIRM") "CONFIRM PRIVACY PIN" else "WEALTHFLOW SAFE LOCK",
                                     fontWeight = FontWeight.Black,
-                                    style = MaterialTheme.typography.titleLarge,
+                                    style = MaterialTheme.typography.titleMedium,
                                     letterSpacing = 1.2.sp,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
                                 Text(
-                                    text = "This finance application is locked for privacy-first user protection.",
-                                    fontSize = 13.sp,
+                                    text = if (pinFlowState == "CREATE") {
+                                        "Configure a local 4-digit security PIN to restrict startup access on this device."
+                                    } else if (pinFlowState == "CONFIRM") {
+                                        "Retype the 4-digit code to initialize encryption shield."
+                                    } else {
+                                        "Enter your security keys or tap fingerprint to initialize local ledger."
+                                    },
+                                    fontSize = 11.sp,
                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                                    textAlign = TextAlign.Center
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(horizontal = 12.dp)
                                 )
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Button(
-                                    onClick = { showBiometricPrompt() },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(50.dp)
-                                        .testTag("authenticate_biometric_btn"),
-                                    shape = RoundedCornerShape(12.dp)
-                                ) {
-                                    Icon(imageVector = Icons.Default.Fingerprint, contentDescription = "Fingerprint")
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text("UNLOCK PORTFOLIO", fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+
+                                if (errorMessage.isNotEmpty()) {
+                                    Text(
+                                        text = errorMessage,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.error,
+                                        textAlign = TextAlign.Center,
+                                        modifier = Modifier.padding(horizontal = 8.dp)
+                                    )
                                 }
-                                
+
+                                Spacer(modifier = Modifier.height(6.dp))
+
+                                // Visual PIN slots representation dots
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    for (i in 0..3) {
+                                        val isFilled = pinInput.length > i
+                                        Box(
+                                            modifier = Modifier
+                                                .size(16.dp)
+                                                .background(
+                                                    color = if (isFilled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f),
+                                                    shape = RoundedCornerShape(8.dp)
+                                                )
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                // 3x4 Custom Lockpad Keypad
+                                val keys = listOf(
+                                    listOf("1", "2", "3"),
+                                    listOf("4", "5", "6"),
+                                    listOf("7", "8", "9"),
+                                    listOf("FP", "0", "DEL")
+                                )
+
+                                Column(
+                                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    keys.forEach { rowKeys ->
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            rowKeys.forEach { key ->
+                                                if (key == "FP") {
+                                                    IconButton(
+                                                        onClick = { showBiometricPrompt() },
+                                                        modifier = Modifier
+                                                            .size(60.dp)
+                                                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f), RoundedCornerShape(30.dp))
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Fingerprint,
+                                                            contentDescription = "Fingerprint sensor",
+                                                            tint = MaterialTheme.colorScheme.primary,
+                                                            modifier = Modifier.size(28.dp)
+                                                        )
+                                                    }
+                                                } else if (key == "DEL") {
+                                                    IconButton(
+                                                        onClick = {
+                                                            if (pinInput.isNotEmpty()) {
+                                                                pinInput = pinInput.dropLast(1)
+                                                            }
+                                                        },
+                                                        modifier = Modifier
+                                                            .size(60.dp)
+                                                            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(30.dp))
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Backspace,
+                                                            contentDescription = "Delete key",
+                                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                            modifier = Modifier.size(22.dp)
+                                                        )
+                                                    }
+                                                } else {
+                                                    Button(
+                                                        onClick = {
+                                                            if (pinInput.length < 4) {
+                                                                pinInput += key
+                                                                errorMessage = ""
+                                                            }
+                                                            if (pinInput.length == 4) {
+                                                                when (pinFlowState) {
+                                                                    "CREATE" -> {
+                                                                        tempFirstPin = pinInput
+                                                                        pinInput = ""
+                                                                        pinFlowState = "CONFIRM"
+                                                                    }
+                                                                    "CONFIRM" -> {
+                                                                        if (pinInput == tempFirstPin) {
+                                                                            sharedPrefs.edit().putString("secure_pin", pinInput).apply()
+                                                                            savedPin = pinInput
+                                                                            isUnlocked = true
+                                                                        } else {
+                                                                            errorMessage = "PINs do not match. Try creating again."
+                                                                            pinFlowState = "CREATE"
+                                                                            pinInput = ""
+                                                                            tempFirstPin = ""
+                                                                        }
+                                                                    }
+                                                                    "ENTER" -> {
+                                                                        if (pinInput == savedPin) {
+                                                                            isUnlocked = true
+                                                                        } else {
+                                                                            errorMessage = "Incorrect PIN code. Please retry."
+                                                                            pinInput = ""
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        },
+                                                        modifier = Modifier.size(60.dp),
+                                                        shape = RoundedCornerShape(30.dp),
+                                                        colors = ButtonDefaults.buttonColors(
+                                                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        ),
+                                                        contentPadding = PaddingValues(0.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = key,
+                                                            fontSize = 20.sp,
+                                                            fontWeight = FontWeight.Bold
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
                                 TextButton(
                                     onClick = { isUnlocked = true },
-                                    modifier = Modifier
-                                        .testTag("bypass_biometric_btn")
+                                    modifier = Modifier.testTag("bypass_biometric_btn")
                                 ) {
-                                    Text("Bypass (Testing & Emulators)", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f))
+                                    Text("Bypass (Testing Mode)", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f))
                                 }
                             }
                         }
                     }
                     LaunchedEffect(Unit) {
-                        showBiometricPrompt()
+                        if (pinFlowState == "ENTER") {
+                            showBiometricPrompt()
+                        }
                     }
                 } else {
                     var activeTabIndex by remember { mutableStateOf(0) }
                     val countryConfig by viewModel.activeCountryConfig.collectAsState()
+                    val context = androidx.compose.ui.platform.LocalContext.current
+
+                    LaunchedEffect(Unit) {
+                        viewModel.checkRateUpdatePrompt()
+                        viewModel.notifications.collect { msg ->
+                            android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_LONG).show()
+                        }
+                    }
 
                     Scaffold(
                         modifier = Modifier

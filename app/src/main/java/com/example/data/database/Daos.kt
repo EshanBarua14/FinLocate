@@ -129,3 +129,24 @@ interface CountryConfigDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertConfig(config: CountryConfigEntity)
 }
+
+@Dao
+interface MatchingRuleDao {
+    @Query("SELECT * FROM matching_rules ORDER BY keyword ASC")
+    fun getAllRules(): Flow<List<MatchingRuleEntity>>
+
+    @Query("SELECT * FROM matching_rules ORDER BY keyword ASC")
+    suspend fun getAllRulesStatic(): List<MatchingRuleEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertRule(rule: MatchingRuleEntity): Long
+
+    @Update
+    suspend fun updateRule(rule: MatchingRuleEntity)
+
+    @Delete
+    suspend fun deleteRule(rule: MatchingRuleEntity)
+
+    @Query("DELETE FROM matching_rules")
+    suspend fun clearRules()
+}

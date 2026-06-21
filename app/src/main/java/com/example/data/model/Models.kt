@@ -125,6 +125,7 @@ data class AccountEntity(
     val currency: String,
     val provider: String = "Cash", // e.g. "bKash", "Chase", "State Bank of India"
     val accountColorHex: String = "#10B981",
+    val isSyncEnabled: Boolean = true,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 )
@@ -159,6 +160,7 @@ data class TransactionEntity(
     val taxRate: Double = 0.0,
     val notes: String = "",
     val isRecurring: Boolean = false,
+    val recurrenceInterval: String = "NONE", // NONE, DAILY, WEEKLY, MONTHLY
     val splitCount: Int = 1, // support simple split expense math
     val userEmail: String = "", // sandbox SaaS partition/audit field
     val createdAt: Long = System.currentTimeMillis()
@@ -178,6 +180,7 @@ data class BudgetEntity(
     val month: String, // format YYYY-MM
     val rolloverAmount: Double = 0.0,
     val isAdaptive: Boolean = false, // smart AI recommendations toggling
+    val savingsGoal: Double = 0.0, // target savings goal set for this category budget
     val updatedAt: Long = System.currentTimeMillis()
 )
 
@@ -208,4 +211,18 @@ data class TransactionWithCategoryAndAccount(
         entityColumn = "id"
     )
     val category: CategoryEntity?
+)
+
+@Entity(
+    tableName = "matching_rules",
+    indices = [Index(value = ["keyword"], unique = true)]
+)
+data class MatchingRuleEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val keyword: String, // transaction description/merchant substring
+    val categoryId: Long,
+    val isTaxDeductible: Boolean = false,
+    val taxRate: Double = 0.0,
+    val notes: String = "",
+    val createdAt: Long = System.currentTimeMillis()
 )

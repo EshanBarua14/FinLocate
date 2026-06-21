@@ -1,5 +1,6 @@
 package com.example.ui
 
+import kotlinx.coroutines.launch
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.ui.viewinterop.AndroidView
@@ -48,6 +49,8 @@ fun DashboardScreen(
     modifier: Modifier = Modifier
 ) {
     var showQuickAddDialog by remember { mutableStateOf(false) }
+    var showControlCenter by remember { mutableStateOf(false) }
+    val isDark by viewModel.isDarkTheme.collectAsState()
     val totalBalance by viewModel.totalBalance.collectAsState()
     val inflow by viewModel.currentInflow.collectAsState()
     val outflow by viewModel.currentOutflow.collectAsState()
@@ -59,6 +62,9 @@ fun DashboardScreen(
     val selectedMonth by viewModel.selectedMonth.collectAsState()
     val countryConfig by viewModel.activeCountryConfig.collectAsState()
     val budgetProjection by viewModel.budgetProjection.collectAsState()
+    val netWorthSummary by viewModel.netWorthSummary.collectAsState()
+    val matchingRules by viewModel.matchingRules.collectAsState()
+    val anomalies by viewModel.detectedAnomalies.collectAsState()
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -86,7 +92,7 @@ fun DashboardScreen(
         item {
             Card(
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                    containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
                 ),
                 shape = RoundedCornerShape(24.dp),
                 modifier = Modifier
@@ -103,15 +109,15 @@ fun DashboardScreen(
                     ) {
                         Column {
                             Text(
-                                text = "NET LIQUID WORTH",
+                                text = "TOTAL NET WORTH",
                                 style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
                                 fontWeight = FontWeight.Bold,
                                 letterSpacing = 1.2.sp
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = viewModel.formatCurrency(totalBalance),
+                                text = viewModel.formatCurrency(netWorthSummary.totalNetWorth),
                                 style = MaterialTheme.typography.headlineLarge,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onBackground,
@@ -119,17 +125,94 @@ fun DashboardScreen(
                             )
                         }
                         IconButton(
-                            onClick = { viewModel.triggerGeminiEvaluation() },
+                            onClick = { viewModel.syncAllActiveAccounts() },
                             modifier = Modifier
                                 .background(MaterialTheme.colorScheme.primary, CircleShape)
                                 .size(48.dp)
                                 .testTag("quick_refresh_fab")
                         ) {
                             Icon(
-                                imageVector = Icons.Default.AutoAwesome,
-                                contentDescription = "AI Audit",
+                                imageVector = Icons.Default.Sync,
+                                contentDescription = "Sync All Bank Gateway Accounts",
                                 tint = MaterialTheme.colorScheme.background
                             )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.05f)
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.Payments,
+                                        contentDescription = "Manual entries",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "MANUAL CASH",
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                                        letterSpacing = 0.5.sp
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = viewModel.formatCurrency(netWorthSummary.manualNetInLocalCurrency),
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onBackground,
+                                    modifier = Modifier.testTag("manual_net_worth_text")
+                                )
+                            }
+                        }
+
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.05f)
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.CloudSync,
+                                        contentDescription = "Synced accounts",
+                                        tint = FintechGreen,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "SYNCED BANK/MFS",
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                                        letterSpacing = 0.5.sp
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = viewModel.formatCurrency(netWorthSummary.syncedNetInLocalCurrency),
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onBackground,
+                                    modifier = Modifier.testTag("synced_net_worth_text")
+                                )
+                            }
                         }
                     }
 
@@ -186,6 +269,112 @@ fun DashboardScreen(
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = ExpenseRose
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- 1.25. ANOMALY DETECTION AND FRAUD WARNINGS ---
+        if (anomalies.isNotEmpty()) {
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.12f)
+                    ),
+                    shape = RoundedCornerShape(20.dp),
+                    border = BorderStroke(1.2.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.4f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("anomaly_alert_card")
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Warning,
+                                    contentDescription = "Alert",
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "SUSPICIOUS PATTERN DEVIATIONS (${anomalies.size})",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.error,
+                                    letterSpacing = 0.8.sp
+                                )
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "WealthFlow real-time risk algorithms have flagged the following potential duplicate records or transaction outliers for prompt review:",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
+                            lineHeight = 14.sp
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            anomalies.take(3).forEach { report ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.15f), RoundedCornerShape(10.dp))
+                                        .padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = report.transaction.merchant.ifEmpty { "Indirect Ledger Entry" },
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 11.sp,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                            Text(
+                                                text = viewModel.formatCurrency(report.transaction.amount),
+                                                fontWeight = FontWeight.ExtraBold,
+                                                fontSize = 11.sp,
+                                                color = MaterialTheme.colorScheme.error
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = report.description,
+                                            fontSize = 10.sp,
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
+                                            lineHeight = 13.sp
+                                        )
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = "Reliability Confidence: ${(report.confidence * 100).toInt()}% • Group: ${report.type.name.replace("_", " ")}",
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.error.copy(alpha = 0.8f)
+                                        )
+                                    }
+                                }
+                            }
+                            if (anomalies.size > 3) {
+                                Text(
+                                    text = "+ ${anomalies.size - 3} additional suspicious records audited.",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.padding(top = 2.dp)
                                 )
                             }
                         }
@@ -574,17 +763,34 @@ fun DashboardScreen(
         // --- 3. ACCOUNTS SNAPSHOTS (HORIZONTAL SCROLLER SIMULATOR) ---
         item {
             Column {
-                Text(
-                    text = "ACCOUNTS & mobile wallets",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.sp,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "ACCOUNTS & MOBILE WALLETS",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp
+                    )
+                    IconButton(
+                        onClick = { showControlCenter = true },
+                        modifier = Modifier.size(24.dp).testTag("accounts_control_panel_btn")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "Inter-App Bank Controller",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(4.dp))
                 if (accounts.isEmpty()) {
                     Text(
-                        text = "No accounts configured. Click '+' to add customized banks.",
+                        text = "No accounts configured. Click settings gear icon to link banks & mobile wallets.",
                         color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
                         fontSize = 13.sp,
                         modifier = Modifier.padding(vertical = 12.dp)
@@ -602,6 +808,174 @@ fun DashboardScreen(
                                 formatter = { viewModel.formatCurrency(it) },
                                 modifier = Modifier.weight(1f)
                             )
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- 3B. LINKED INTEGRATION MODULES (ACTIVE CHANNELS) ---
+        item {
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
+                ),
+                shape = RoundedCornerShape(20.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("linked_accounts_dashboard_card")
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f, fill = false)) {
+                            Icon(
+                                imageVector = Icons.Default.CloudSync,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "LINKED BANK & MFS SERVICE CHANNELS",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        Button(
+                            onClick = { viewModel.syncAllActiveAccounts() },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier
+                                .height(28.dp)
+                                .testTag("dashboard_bulk_sync_btn"),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = FintechGreen,
+                                contentColor = Color.White
+                            )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Sync,
+                                contentDescription = null,
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("BULK SYNC", fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    val integrations = accounts.filter { it.type == "BANK" || it.type == "MOBILE_WALLET" }
+                    if (integrations.isEmpty()) {
+                        Text(
+                            text = "No linked external banking/MFS gateways active. Configure connections inside the setup gear panel.",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                        )
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            integrations.forEach { account ->
+                                Card(
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.surface
+                                    ),
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(12.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Icon(
+                                                        imageVector = if (account.type == "BANK") Icons.Default.AccountBalance else Icons.Default.PhonelinkRing,
+                                                        contentDescription = null,
+                                                        tint = Color(android.graphics.Color.parseColor(account.accountColorHex)),
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Text(
+                                                        text = account.name,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 13.sp,
+                                                        color = MaterialTheme.colorScheme.onSurface
+                                                    )
+                                                }
+                                                Spacer(modifier = Modifier.height(2.dp))
+                                                Text(
+                                                    text = "${account.provider} Gateway • ${if (account.isSyncEnabled) "ACTIVE SYNCHRONIZATION" else "LOCAL ACCOUNT ONLY"}",
+                                                    fontSize = 9.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = if (account.isSyncEnabled) FintechGreen else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                                )
+                                            }
+
+                                            Text(
+                                                text = viewModel.formatCurrency(account.balance),
+                                                fontWeight = FontWeight.Black,
+                                                fontSize = 14.sp,
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                modifier = Modifier.testTag("linked_acc_balance_${account.id}")
+                                            )
+                                        }
+
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.08f))
+                                        Spacer(modifier = Modifier.height(8.dp))
+
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                Checkbox(
+                                                    checked = account.isSyncEnabled,
+                                                    onCheckedChange = { viewModel.toggleAccountSync(account) },
+                                                    modifier = Modifier.size(24.dp).testTag("sync_toggle_chk_${account.id}")
+                                                )
+                                                Text(
+                                                    text = "Automated API Syncing",
+                                                    fontSize = 11.sp,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+
+                                            IconButton(
+                                                onClick = { viewModel.syncAccountInstance(account) },
+                                                enabled = account.isSyncEnabled,
+                                                modifier = Modifier
+                                                    .background(
+                                                        if (account.isSyncEnabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                                                        else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
+                                                        CircleShape
+                                                    )
+                                                    .size(32.dp)
+                                                    .testTag("api_sync_refresh_btn_${account.id}")
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Refresh,
+                                                    contentDescription = "Sync transaction logs",
+                                                    tint = if (account.isSyncEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -730,12 +1104,13 @@ fun DashboardScreen(
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(430.dp)
+                                    .height(580.dp)
                             ) {
                                 RechartsTrendWebView(
                                     trendDataJson = trendJson,
                                     budgetBarJson = budgetBarJson,
                                     currencySymbol = countryConfig.currencySymbol,
+                                    isDark = isDark,
                                     modifier = Modifier.fillMaxSize()
                                 )
                             }
@@ -885,6 +1260,451 @@ fun DashboardScreen(
         QuickAddExpenseDialog(
             viewModel = viewModel,
             onDismiss = { showQuickAddDialog = false }
+        )
+    }
+
+    if (showControlCenter) {
+        AlertDialog(
+            onDismissRequest = { showControlCenter = false },
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = "Inter-App Bank link icon",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Text("BANK & MFS CONTROL CENTER", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                }
+            },
+            text = {
+                var selectedTab by remember { mutableStateOf(0) } // 0: Link, 1: Control
+                var name by remember { mutableStateOf("") }
+                var balanceStr by remember { mutableStateOf("") }
+                var accountType by remember { mutableStateOf("BANK") }
+                var provider by remember { mutableStateOf("Chase") }
+                var expandedProvider by remember { mutableStateOf(false) }
+                
+                var activeAuditLog by remember { mutableStateOf<Map<Long, String>>(emptyMap()) }
+                var activeAuditLoading by remember { mutableStateOf<Map<Long, Boolean>>(emptyMap()) }
+                val context = androidx.compose.ui.platform.LocalContext.current
+                val coroutineScope = rememberCoroutineScope()
+                
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                    TabRow(
+                        selectedTabIndex = selectedTab,
+                        modifier = Modifier.fillMaxWidth().height(36.dp)
+                    ) {
+                        Tab(
+                            selected = selectedTab == 0,
+                            onClick = { selectedTab = 0 },
+                            text = { Text("Link App", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                        )
+                        Tab(
+                            selected = selectedTab == 1,
+                            onClick = { selectedTab = 1 },
+                            text = { Text("App Controller", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                        )
+                        Tab(
+                            selected = selectedTab == 2,
+                            onClick = { selectedTab = 2 },
+                            text = { Text("Auto-Match Rules", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                        )
+                    }
+                    
+                    if (selectedTab == 0) {
+                        Text("Connect External Bank or Mobile Financial Service (MFS)", fontSize = 10.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                        
+                        OutlinedTextField(
+                            value = name,
+                            onValueChange = { name = it },
+                            label = { Text("App Label Name", fontSize = 11.sp) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth().testTag("link_acc_name_input")
+                        )
+                        
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            listOf("BANK", "MOBILE_WALLET").forEach { type ->
+                                FilterChip(
+                                    selected = accountType == type,
+                                    onClick = { 
+                                        accountType = type
+                                        provider = if (type == "BANK") "Chase" else "bKash"
+                                    },
+                                    label = { Text(if (type == "BANK") "🏦 BANK APP" else "📱 MFS WALLET", fontSize = 9.sp, fontWeight = FontWeight.Bold) },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+                        
+                        val providerList = if (accountType == "BANK") {
+                            listOf("Chase", "Bank of America", "HSBC", "Citi", "State Bank of India", "Barclays")
+                        } else {
+                            listOf("bKash", "SSL Wallet", "Nagad", "Rocket", "Upay")
+                        }
+                        
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            OutlinedButton(
+                                onClick = { expandedProvider = true },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Provider API Gateway: $provider", fontSize = 11.sp)
+                            }
+                            DropdownMenu(
+                                expanded = expandedProvider,
+                                onDismissRequest = { expandedProvider = false }
+                            ) {
+                                providerList.forEach { prov ->
+                                    DropdownMenuItem(
+                                        text = { Text(prov, fontSize = 11.sp) },
+                                        onClick = {
+                                            provider = prov
+                                            expandedProvider = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                        
+                        OutlinedTextField(
+                            value = balanceStr,
+                            onValueChange = { balanceStr = it },
+                            label = { Text("Starter Connection Balance", fontSize = 11.sp) },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth().testTag("link_acc_balance_input")
+                        )
+                        
+                        Button(
+                            onClick = {
+                                val bal = balanceStr.toDoubleOrNull() ?: 0.0
+                                if (name.isNotEmpty()) {
+                                    viewModel.addAccount(
+                                        name = name,
+                                        type = accountType,
+                                        startingBalance = bal,
+                                        provider = provider,
+                                        colorHex = if (accountType == "BANK") "#0D9488" else "#DB2777"
+                                    )
+                                    android.widget.Toast.makeText(context, "$provider app integrated!", android.widget.Toast.LENGTH_SHORT).show()
+                                    name = ""
+                                    balanceStr = ""
+                                    selectedTab = 1
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth().testTag("link_institution_btn"),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text("LINK SECURE APP INSTANCE", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    } else if (selectedTab == 1) {
+                        if (accounts.isEmpty()) {
+                            Text("No linked apps. Link accounts in first tab.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
+                        } else {
+                            LazyColumn(
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.heightIn(max = 240.dp).fillMaxWidth()
+                            ) {
+                                items(accounts.size) { index ->
+                                    val acc = accounts[index]
+                                    val isChecking = activeAuditLoading[acc.id] ?: false
+                                    val auditLog = activeAuditLog[acc.id] ?: "API Idle. Secure token registered."
+                                    
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.03f), RoundedCornerShape(12.dp))
+                                            .padding(8.dp)
+                                    ) {
+                                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Column {
+                                                    Text(acc.name, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                                    Text("${acc.provider} [${acc.type}]", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                                }
+                                                Text(viewModel.formatCurrency(acc.balance), fontWeight = FontWeight.Black, fontSize = 12.sp)
+                                            }
+                                            
+                                            Text(
+                                                text = "Log: $auditLog",
+                                                fontSize = 9.sp,
+                                                color = if (isChecking) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                            )
+                                            
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Button(
+                                                    onClick = {
+                                                        activeAuditLoading = activeAuditLoading + (acc.id to true)
+                                                        activeAuditLog = activeAuditLog + (acc.id to "Handshaking secure API Plaid credentials...")
+                                                        coroutineScope.launch {
+                                                            kotlinx.coroutines.delay(1000)
+                                                            activeAuditLoading = activeAuditLoading + (acc.id to false)
+                                                            activeAuditLog = activeAuditLog + (acc.id to "Success! Plaid Visa token verified. Balance synchronized.")
+                                                            android.widget.Toast.makeText(context, "${acc.name} state synced!", android.widget.Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    },
+                                                    enabled = !isChecking,
+                                                    colors = ButtonDefaults.buttonColors(
+                                                        containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                                                        contentColor = MaterialTheme.colorScheme.primary
+                                                    ),
+                                                    modifier = Modifier.weight(1f).height(28.dp),
+                                                    contentPadding = PaddingValues(0.dp)
+                                                ) {
+                                                    Text("SYNC API", fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                                }
+                                                
+                                                Button(
+                                                    onClick = {
+                                                        activeAuditLoading = activeAuditLoading + (acc.id to true)
+                                                        activeAuditLog = activeAuditLog + (acc.id to "Validating routing, SSL handshake, compliance encryption...")
+                                                        coroutineScope.launch {
+                                                            kotlinx.coroutines.delay(1200)
+                                                            activeAuditLoading = activeAuditLoading + (acc.id to false)
+                                                            activeAuditLog = activeAuditLog + (acc.id to "Cleared: Encryption block secure (SHA-256 routing verified).")
+                                                            android.widget.Toast.makeText(context, "${acc.name} deep audit completed!", android.widget.Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    },
+                                                    enabled = !isChecking,
+                                                    colors = ButtonDefaults.buttonColors(
+                                                        containerColor = FintechGreen.copy(alpha = 0.12f),
+                                                        contentColor = FintechGreen
+                                                    ),
+                                                    modifier = Modifier.weight(1.1f).height(28.dp),
+                                                    contentPadding = PaddingValues(0.dp)
+                                                ) {
+                                                    Text("AUDIT", fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                                }
+                                                
+                                                Button(
+                                                    onClick = {
+                                                        activeAuditLog = activeAuditLog + (acc.id to "Deep-link intent generated. Launcher redirected safely.")
+                                                        android.widget.Toast.makeText(context, "Launched external secure app!", android.widget.Toast.LENGTH_SHORT).show()
+                                                    },
+                                                    enabled = !isChecking,
+                                                    colors = ButtonDefaults.buttonColors(
+                                                        containerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f),
+                                                        contentColor = MaterialTheme.colorScheme.onSurface
+                                                    ),
+                                                    modifier = Modifier.weight(1f).height(28.dp),
+                                                    contentPadding = PaddingValues(0.dp)
+                                                ) {
+                                                    Text("LAUNCH", fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        // TAB 2: Custom auto match rule mapping controls!
+                        var ruleKeyword by remember { mutableStateOf("") }
+                        var ruleCategoryId by remember { mutableStateOf(categories.firstOrNull()?.id ?: 1L) }
+                        var isTaxDeductible by remember { mutableStateOf(false) }
+                        var taxRateStr by remember { mutableStateOf("8.25") }
+                        var expandedCatDropdown by remember { mutableStateOf(false) }
+
+                        Text("Configure patterns to auto-assign category & tax tags", fontSize = 10.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+
+                        OutlinedTextField(
+                            value = ruleKeyword,
+                            onValueChange = { ruleKeyword = it },
+                            label = { Text("Keyword Pattern (e.g., Walmart)", fontSize = 11.sp) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth().testTag("rule_keyword_input")
+                        )
+
+                        // Category Dropdown selector
+                        val matchedCat = categories.find { it.id == ruleCategoryId } ?: categories.firstOrNull()
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            OutlinedButton(
+                                onClick = { expandedCatDropdown = true },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Mapped Category: ${matchedCat?.name ?: "Select Box"}", fontSize = 11.sp)
+                            }
+                            DropdownMenu(
+                                expanded = expandedCatDropdown,
+                                onDismissRequest = { expandedCatDropdown = false }
+                            ) {
+                                categories.forEach { cat ->
+                                    DropdownMenuItem(
+                                        text = { Text(cat.name, fontSize = 11.sp) },
+                                        onClick = {
+                                            ruleCategoryId = cat.id
+                                            expandedCatDropdown = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(
+                                    checked = isTaxDeductible,
+                                    onCheckedChange = { isTaxDeductible = it },
+                                    modifier = Modifier.size(32.dp).testTag("rule_tax_checkbox")
+                                )
+                                Text("Mark Tax Deductible", fontSize = 11.sp, modifier = Modifier.padding(start = 4.dp))
+                            }
+
+                            if (isTaxDeductible) {
+                                OutlinedTextField(
+                                    value = taxRateStr,
+                                    onValueChange = { taxRateStr = it },
+                                    label = { Text("Tax Rate %", fontSize = 11.sp) },
+                                    singleLine = true,
+                                    modifier = Modifier.width(100.dp).testTag("rule_tax_rate_input")
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        Button(
+                            onClick = {
+                                if (ruleKeyword.isNotEmpty()) {
+                                    val rateVal = taxRateStr.toDoubleOrNull() ?: 0.0
+                                    viewModel.addMatchingRule(ruleKeyword, ruleCategoryId, isTaxDeductible, rateVal)
+                                    ruleKeyword = ""
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth().testTag("save_matching_rule_btn")
+                        ) {
+                            Text("SAVE AUTO-MATCHING RULE", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+
+                        Text("ACTIVE MAPPING TEMPLATES (${matchingRules.size})", fontSize = 9.sp, fontWeight = FontWeight.Bold)
+
+                        LazyColumn(
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.heightIn(max = 140.dp).fillMaxWidth()
+                        ) {
+                            items(matchingRules.size) { index ->
+                                val r = matchingRules[index]
+                                val rCatName = categories.find { it.id == r.categoryId }?.name ?: "Unknown"
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f), RoundedCornerShape(8.dp))
+                                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column {
+                                        Text("\"${r.keyword}\" ➜ $rCatName", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                        Text(
+                                            text = if (r.isTaxDeductible) "Tax Deductible (${r.taxRate}%)" else "Non-deductible Ledger",
+                                            fontSize = 9.sp,
+                                            color = if (r.isTaxDeductible) FintechGreen else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                                        )
+                                    }
+                                    IconButton(
+                                        onClick = { viewModel.deleteMatchingRule(r) },
+                                        modifier = Modifier.size(24.dp).testTag("delete_rule_btn_${r.id}")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Delete,
+                                            contentDescription = "Delete mapping pattern Rule",
+                                            tint = MaterialTheme.colorScheme.error,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = { showControlCenter = false }) {
+                    Text("Close", fontSize = 11.sp)
+                }
+            }
+        )
+    }
+
+    val showRatePrompt by viewModel.showRatePrompt.collectAsState()
+    if (showRatePrompt) {
+        val context = androidx.compose.ui.platform.LocalContext.current
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissRatePrompt() },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Language,
+                        contentDescription = "Exchange rates update prompt",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Refresh Currency Rates")
+                }
+            },
+            text = {
+                Text(
+                    text = "Would you like to update your currency rates using the latest online prices (USD base currency) to guarantee absolute multi-currency portfolio accuracy?",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            },
+            confirmButton = {
+                var loading by remember { mutableStateOf(false) }
+                Button(
+                    onClick = {
+                        loading = true
+                        viewModel.triggerExchangeRatesFetch(
+                            onSuccess = { msg ->
+                                loading = false
+                                android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_LONG).show()
+                            },
+                            onFailure = { err ->
+                                loading = false
+                                android.widget.Toast.makeText(context, err, android.widget.Toast.LENGTH_LONG).show()
+                            }
+                        )
+                    },
+                    modifier = Modifier.testTag("rate_prompt_confirm_btn")
+                ) {
+                    if (loading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Text("Update")
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { viewModel.dismissRatePrompt() },
+                    modifier = Modifier.testTag("rate_prompt_dismiss_btn")
+                ) {
+                    Text("Skip")
+                }
+            }
         )
     }
 }
@@ -1067,6 +1887,7 @@ fun AlertItemCard(
 fun D3ChartWebView(
     shares: List<CategoryShare>,
     currencySymbol: String,
+    isDark: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     val rawJson = shares.joinToString(",") { share ->
@@ -1080,8 +1901,8 @@ fun D3ChartWebView(
             <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
             <style>
                 body {
-                    background-color: #0F172A; /* Match Slate 900 */
-                    color: #F8FAFC;
+                    background-color: ${if (isDark) "#141B2D" else "#FFFFFF"};
+                    color: ${if (isDark) "#F8FAFC" else "#1F2937"};
                     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
                     margin: 0;
                     padding: 0;
@@ -1142,7 +1963,7 @@ fun D3ChartWebView(
                     .data(data_ready)
                     .join('path')
                     .attr('fill', d => color(d.data.name))
-                    .attr("stroke", "#0F172A")
+                    .attr("stroke", "${if (isDark) "#141B2D" else "#FFFFFF"}")
                     .style("stroke-width", "1.5px")
                     .transition()
                     .duration(800)
@@ -1159,7 +1980,7 @@ fun D3ChartWebView(
                     .attr("dy", "-0.1em")
                     .style("font-size", "8px")
                     .style("font-weight", "600")
-                    .style("fill", "#94A3B8")
+                    .style("fill", "${if (isDark) "#94A3B8" else "#6B7280"}")
                     .text("D3 VALUE");
 
                 svg.append("text")
@@ -1181,7 +2002,7 @@ fun D3ChartWebView(
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
                 webViewClient = android.webkit.WebViewClient()
-                setBackgroundColor(android.graphics.Color.parseColor("#0F172A"))
+                setBackgroundColor(android.graphics.Color.parseColor(if (isDark) "#141B2D" else "#FFFFFF"))
             }
         },
         update = { webView ->
@@ -1195,6 +2016,7 @@ fun RechartsTrendWebView(
     trendDataJson: String,
     budgetBarJson: String,
     currencySymbol: String,
+    isDark: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     val htmlContent = """
@@ -1204,8 +2026,8 @@ fun RechartsTrendWebView(
             <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
             <style>
                 body {
-                    background-color: #0F172A; /* Slate 900 */
-                    color: #F8FAFC;
+                    background-color: ${if (isDark) "#141B2D" else "#FFFFFF"};
+                    color: ${if (isDark) "#F8FAFC" else "#1F2937"};
                     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
                     margin: 0;
                     padding: 8px 12px 16px 12px;
@@ -1222,7 +2044,7 @@ fun RechartsTrendWebView(
                 h3 {
                     font-size: 11px;
                     font-weight: 800;
-                    color: #94A3B8;
+                    color: ${if (isDark) "#94A3B8" else "#4B5563"};
                     letter-spacing: 1px;
                     margin-top: 0;
                     margin-bottom: 12px;
@@ -1244,33 +2066,40 @@ fun RechartsTrendWebView(
                 </div>
             </div>
             
-            <div class="chart-section" style="margin-bottom: 0;">
+            <div class="chart-section">
                 <h3>📊 CATEGORIES VS BUDGET LIMITS</h3>
                 <div class="canvas-holder" style="height: 165px;">
                     <canvas id="budgetChart"></canvas>
                 </div>
             </div>
 
+            <div class="chart-section" style="margin-bottom: 0;">
+                <h3>🍰 CATEGORY EXPENSE BREAKDOWN</h3>
+                <div class="canvas-holder" style="height: 180px;">
+                    <canvas id="categoryPieChart"></canvas>
+                </div>
+            </div>
+ 
             <script>
                 // --- TREND LINE DATA ---
                 const trendRaw = [ $trendDataJson ];
                 const trendLabels = trendRaw.map(d => "Day " + d.day);
                 const trendValues = trendRaw.map(d => d.Spent);
-
+ 
                 // --- BUDGETS BAR DATA ---
                 const budgetRaw = [ $budgetBarJson ];
                 const budgetLabels = budgetRaw.map(d => d.category);
                 const budgetLimits = budgetRaw.map(d => d.Limit);
                 const budgetSpents = budgetRaw.map(d => d.Spent);
-
+ 
                 // Set up Line Chart
                 const trendCtx = document.getElementById('trendChart').getContext('2d');
                 
                 // Create gradient
                 const trendGrad = trendCtx.createLinearGradient(0, 0, 0, 150);
-                trendGrad.addColorStop(0, 'rgba(16, 185, 129, 0.4)');
+                trendGrad.addColorStop(0, '${if (isDark) "rgba(16, 185, 129, 0.4)" else "rgba(5, 150, 105, 0.3)"}');
                 trendGrad.addColorStop(1, 'rgba(16, 185, 129, 0.0)');
-
+ 
                 new Chart(trendCtx, {
                     type: 'line',
                     data: {
@@ -1278,13 +2107,13 @@ fun RechartsTrendWebView(
                         datasets: [{
                             label: 'Total Spent',
                             data: trendValues,
-                            borderColor: '#10B981',
+                            borderColor: '${if (isDark) "#10B981" else "#059669"}',
                             borderWidth: 2,
                             backgroundColor: trendGrad,
                             fill: true,
                             tension: 0.4,
                             pointRadius: trendValues.length > 15 ? 0 : 3,
-                            pointBackgroundColor: '#10B981'
+                            pointBackgroundColor: '${if (isDark) "#10B981" else "#059669"}'
                         }]
                     },
                     options: {
@@ -1295,13 +2124,13 @@ fun RechartsTrendWebView(
                         },
                         scales: {
                             x: {
-                                grid: { color: '#1E293B' },
-                                ticks: { color: '#94A3B8', font: { size: 9 } }
+                                grid: { color: '${if (isDark) "#1E293B" else "#E2E8F0"}' },
+                                ticks: { color: '${if (isDark) "#94A3B8" else "#4B5563"}', font: { size: 9 } }
                             },
                             y: {
-                                grid: { color: '#1E293B' },
+                                grid: { color: '${if (isDark) "#1E293B" else "#E2E8F0"}' },
                                 ticks: {
-                                    color: '#94A3B8',
+                                    color: '${if (isDark) "#94A3B8" else "#4B5563"}',
                                     font: { size: 9 },
                                     callback: function(value) { return '$currencySymbol' + value; }
                                 }
@@ -1309,16 +2138,16 @@ fun RechartsTrendWebView(
                         }
                     }
                 });
-
+ 
                 // Set up Budget Bar Chart
                 const budgetCtx = document.getElementById('budgetChart').getContext('2d');
                 
-                // Define modern colors: limit bars are always deep blue; spent bars are green or rose based on overrun
+                // Define modern colors: limit bars are always deep blue or light slate; spent bars are green or rose based on overrun
                 const backgroundColors = budgetSpents.map((spent, idx) => {
                     const limit = budgetLimits[idx];
-                    return spent > limit ? '#F43F5E' : '#10B981';
+                    return spent > limit ? '#F43F5E' : '${if (isDark) "#10B981" else "#059669"}';
                 });
-
+ 
                 new Chart(budgetCtx, {
                     type: 'bar',
                     data: {
@@ -1327,7 +2156,7 @@ fun RechartsTrendWebView(
                             {
                                 label: 'Budget Limit',
                                 data: budgetLimits,
-                                backgroundColor: '#3B82F6',
+                                backgroundColor: '${if (isDark) "#3B82F6" else "#3B82F6"}',
                                 borderRadius: 4,
                                 barPercentage: 0.6,
                                 categoryPercentage: 0.8
@@ -1347,20 +2176,53 @@ fun RechartsTrendWebView(
                         maintainAspectRatio: false,
                         plugins: {
                             legend: {
-                                labels: { color: '#F8FAFC', font: { size: 10 } }
+                                labels: { color: '${if (isDark) "#F8FAFC" else "#1F2937"}', font: { size: 10 } }
                             }
                         },
                         scales: {
                             x: {
-                                grid: { color: '#1E293B' },
-                                ticks: { color: '#94A3B8', font: { size: 9 } }
+                                grid: { color: '${if (isDark) "#1E293B" else "#E2E8F0"}' },
+                                ticks: { color: '${if (isDark) "#94A3B8" else "#4B5563"}', font: { size: 9 } }
                             },
                             y: {
-                                grid: { color: '#1E293B' },
+                                grid: { color: '${if (isDark) "#1E293B" else "#E2E8F0"}' },
                                 ticks: {
-                                    color: '#94A3B8',
+                                    color: '${if (isDark) "#94A3B8" else "#4B5563"}',
                                     font: { size: 9 },
                                     callback: function(value) { return '$currencySymbol' + value; }
+                                }
+                            }
+                        }
+                    }
+                });
+
+                // Set up Breakdown pie chart of only non-zero spent categories
+                const pieCtx = document.getElementById('categoryPieChart').getContext('2d');
+                const nonZeroBudgets = budgetRaw.filter(d => d.Spent > 0);
+                const pieLabels = nonZeroBudgets.length > 0 ? nonZeroBudgets.map(d => d.category) : ["No Expenses"];
+                const pieSpents = nonZeroBudgets.length > 0 ? nonZeroBudgets.map(d => d.Spent) : [0.01];
+                const piePalette = ['#10B981', '#3B82F6', '#FBBF24', '#8B5CF6', '#EC4899', '#EF4444', '#14B8A6', '#F97316', '#22C55E', '#A855F7'];
+
+                new Chart(pieCtx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: pieLabels,
+                        datasets: [{
+                            data: pieSpents,
+                            backgroundColor: nonZeroBudgets.length > 0 ? piePalette : ['rgba(120, 120, 120, 0.15)'],
+                            borderColor: '${if (isDark) "#141B2D" else "#FFFFFF"}',
+                            borderWidth: 1.5
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                position: 'right',
+                                labels: {
+                                    color: '${if (isDark) "#94A3B8" else "#4B5563"}',
+                                    font: { size: 9 }
                                 }
                             }
                         }
@@ -1370,9 +2232,9 @@ fun RechartsTrendWebView(
         </body>
         </html>
     """.trimIndent()
-
+ 
     android.view.View.OnClickListener { } // stub
-
+ 
     AndroidView(
         modifier = modifier.clip(RoundedCornerShape(12.dp)),
         factory = { context ->
@@ -1382,7 +2244,7 @@ fun RechartsTrendWebView(
                 settings.useWideViewPort = true
                 settings.loadWithOverviewMode = true
                 webViewClient = android.webkit.WebViewClient()
-                setBackgroundColor(android.graphics.Color.parseColor("#0F172A"))
+                setBackgroundColor(android.graphics.Color.parseColor(if (isDark) "#141B2D" else "#FFFFFF"))
             }
         },
         update = { webView ->

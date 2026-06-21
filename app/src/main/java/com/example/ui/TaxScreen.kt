@@ -22,14 +22,20 @@ import com.example.data.model.TransactionEntity
 import com.example.ui.theme.AccentGold
 import com.example.ui.theme.FintechGreen
 
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.material.icons.filled.Lock
+
 @Composable
 fun TaxScreen(
     viewModel: MainViewModel,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val transactions by viewModel.filteredTransactions.collectAsState()
     val categories by viewModel.categories.collectAsState()
     val config by viewModel.activeCountryConfig.collectAsState()
+    val isEncrypted by viewModel.isExportEncryptionEnabled.collectAsState()
+    val passcode by viewModel.exportPasscode.collectAsState()
 
     val deductibles = remember(transactions) {
         transactions.filter { it.isTaxDeductible && it.type == "EXPENSE" }
@@ -113,13 +119,72 @@ fun TaxScreen(
                     Spacer(modifier = Modifier.height(16.dp))
 
                     Button(
-                        onClick = { showExportSuccess = true },
+                        onClick = { 
+                            showExportSuccess = true
+                            viewModel.exportTaxReportToCsv(context)
+                        },
                         modifier = Modifier.fillMaxWidth().testTag("export_tax_ledger_btn"),
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         Icon(imageVector = Icons.Default.Download, contentDescription = "Export")
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("GENERATE TAX-COMPLIANT EXPORT (CSV)", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        Text("GENERATE REGIONAL TAX EXPORT", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // --- SECURE OUTBOUND EXPORT ENCRYPTION CONFIG ---
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.04f), RoundedCornerShape(12.dp))
+                            .padding(12.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Lock,
+                                    contentDescription = null,
+                                    tint = if (isEncrypted) FintechGreen else MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "AES-256 Outbound Key Vault",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                            Switch(
+                                checked = isEncrypted,
+                                onCheckedChange = { viewModel.toggleExportEncryption() },
+                                modifier = Modifier.testTag("export_encryption_switch")
+                            )
+                        }
+
+                        if (isEncrypted) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            OutlinedTextField(
+                                value = passcode,
+                                onValueChange = { viewModel.setExportPasscode(it) },
+                                label = { Text("Filing Passphrase Key", fontSize = 10.sp) },
+                                singleLine = true,
+                                textStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                                modifier = Modifier.fillMaxWidth().testTag("export_passcode_input")
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Exported text files (.csv.enc) are securely structured and encrypted with CBC block cipher constraints.",
+                                fontSize = 9.sp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                                lineHeight = 12.sp
+                            )
+                        }
                     }
                 }
             }

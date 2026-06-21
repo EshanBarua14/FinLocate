@@ -59,6 +59,7 @@ fun RapidEntryScreen(
     var notes by remember { mutableStateOf("") }
     var isTaxDeductible by remember { mutableStateOf(false) }
     var isRecurring by remember { mutableStateOf(false) }
+    var recurrenceInterval by remember { mutableStateOf("MONTHLY") }
 
     // Advanced Form Mode toggle + states
     var isFormMode by remember { mutableStateOf(false) }
@@ -224,6 +225,8 @@ fun RapidEntryScreen(
                     onTaxChange = { isTaxDeductible = it },
                     isRecurring = isRecurring,
                     onRecurringChange = { isRecurring = it },
+                    recurrenceInterval = recurrenceInterval,
+                    onRecurrenceIntervalChange = { recurrenceInterval = it },
                     selectedTaxCategory = selectedTaxCategory,
                     onTaxCategoryChange = { selectedTaxCategory = it },
                     formAmount = formAmount,
@@ -582,6 +585,8 @@ fun DetailedFormLayout(
     onTaxChange: (Boolean) -> Unit,
     isRecurring: Boolean,
     onRecurringChange: (Boolean) -> Unit,
+    recurrenceInterval: String,
+    onRecurrenceIntervalChange: (String) -> Unit,
     selectedTaxCategory: String,
     onTaxCategoryChange: (String) -> Unit,
     formAmount: String,
@@ -1002,33 +1007,58 @@ fun DetailedFormLayout(
             shape = RoundedCornerShape(12.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Row(
-                modifier = Modifier
-                    .padding(12.dp)
-                    .fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            Column(modifier = Modifier.padding(12.dp)) {
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Repeat,
-                        contentDescription = "Recurring Payment",
-                        tint = FintechGreen,
-                        modifier = Modifier.size(16.dp)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Repeat,
+                            contentDescription = "Recurring Payment",
+                            tint = FintechGreen,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Column {
+                            Text("Recurring Subscription", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text("Auto-populate in local storage ledger", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                        }
+                    }
+                    Switch(
+                        checked = isRecurring,
+                        onCheckedChange = { onRecurringChange(it) },
+                        modifier = Modifier.testTag("form_recurring_switch").scale(0.85f)
                     )
-                    Column {
-                        Text("Recurring Subscription", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                        Text("Auto-project in future months", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                }
+
+                if (isRecurring) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "Recurrence settings interval:",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf("DAILY", "WEEKLY", "MONTHLY").forEach { interval ->
+                            val isSelected = recurrenceInterval == interval
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = { onRecurrenceIntervalChange(interval) },
+                                label = { Text(interval, fontSize = 10.sp, fontWeight = FontWeight.Bold) },
+                                modifier = Modifier.testTag("recur_interval_$interval")
+                            )
+                        }
                     }
                 }
-                Switch(
-                    checked = isRecurring,
-                    onCheckedChange = { onRecurringChange(it) },
-                    modifier = Modifier.testTag("form_recurring_switch").scale(0.85f)
-                )
             }
         }
 
@@ -1072,6 +1102,7 @@ fun DetailedFormLayout(
                         taxRate = taxRateToUse,
                         notes = notes.ifEmpty { "Form logged ($formCurrency $amt with dynamic mapping: $selectedTaxCategory)" },
                         isRecurring = isRecurring,
+                        recurrenceInterval = recurrenceInterval,
                         customTimestamp = selectedDate
                     )
                     onDismiss()

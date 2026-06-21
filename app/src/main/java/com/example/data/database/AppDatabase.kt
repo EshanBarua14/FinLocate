@@ -15,9 +15,10 @@ import com.example.data.model.*
         BudgetEntity::class,
         InsightEntity::class,
         UserEntity::class,
-        CountryConfigEntity::class
+        CountryConfigEntity::class,
+        MatchingRuleEntity::class
     ],
-    version = 3, // version bump to 3 to represent a fresh production configuration with recurring transactions
+    version = 5, // version bump to 5 to represent the addition of automatic matching rules
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -29,6 +30,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun insightDao(): InsightDao
     abstract fun userDao(): UserDao
     abstract fun countryConfigDao(): CountryConfigDao
+    abstract fun matchingRuleDao(): MatchingRuleDao
 
     companion object {
         @Volatile
