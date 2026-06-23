@@ -12,8 +12,11 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import java.util.Calendar
+import java.util.Date
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -37,6 +40,8 @@ import com.example.data.model.AccountEntity
 import com.example.data.model.CategoryEntity
 import com.example.data.model.InsightEntity
 import com.example.data.model.TransactionEntity
+import com.example.data.service.AnomalyReport
+import com.example.data.service.AnomalyType
 import com.example.ui.theme.*
 import kotlin.math.min
 import androidx.compose.foundation.text.KeyboardOptions
@@ -48,9 +53,17 @@ fun DashboardScreen(
     onNavigateToTransactions: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val dashboardContext = androidx.compose.ui.platform.LocalContext.current
     var showQuickAddDialog by remember { mutableStateOf(false) }
     var showControlCenter by remember { mutableStateOf(false) }
+    var showYearlyReport by remember { mutableStateOf(false) }
     val isDark by viewModel.isDarkTheme.collectAsState()
+    val showBackupReminder by viewModel.showBackupReminder.collectAsState()
+    val txCountSinceLastExport by viewModel.txCountSinceLastExport.collectAsState()
+
+    LaunchedEffect(Unit) {
+        viewModel.checkBackupReminder()
+    }
     val totalBalance by viewModel.totalBalance.collectAsState()
     val inflow by viewModel.currentInflow.collectAsState()
     val outflow by viewModel.currentOutflow.collectAsState()
@@ -60,6 +73,7 @@ fun DashboardScreen(
     val insights by viewModel.smartInsights.collectAsState()
     val burnRateText by viewModel.burnRateAndRunway.collectAsState()
     val selectedMonth by viewModel.selectedMonth.collectAsState()
+    val monthToMonthSpending by viewModel.monthToMonthSpending.collectAsState()
     val countryConfig by viewModel.activeCountryConfig.collectAsState()
     val budgetProjection by viewModel.budgetProjection.collectAsState()
     val netWorthSummary by viewModel.netWorthSummary.collectAsState()
@@ -88,6 +102,81 @@ fun DashboardScreen(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        if (showBackupReminder) {
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.95f)
+                    ),
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(1.2.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("backup_reminder_card")
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Warning,
+                                contentDescription = "Security Alert",
+                                tint = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Text(
+                                text = "BACKUP REMINDER",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                letterSpacing = 1.sp
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "You have added $txCountSinceLastExport unbacked-up expense ledger modifications. Export your financial records to local database backups for offline data security.",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.85f),
+                            lineHeight = 16.sp
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Button(
+                                onClick = { viewModel.exportReportToCsv(dashboardContext) },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.error,
+                                    contentColor = MaterialTheme.colorScheme.onError
+                                ),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                modifier = Modifier.height(36.dp).testTag("backup_export_csv_btn")
+                            ) {
+                                Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Export CSV", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                            OutlinedButton(
+                                onClick = { viewModel.exportReportToPdf(dashboardContext) },
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.4f)),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    contentColor = MaterialTheme.colorScheme.onErrorContainer
+                                ),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                modifier = Modifier.height(36.dp).testTag("backup_export_pdf_btn")
+                            ) {
+                                Icon(Icons.Default.ArrowDownward, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Export PDF", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // --- 1. COMMAND INDEX BANNER ---
         item {
             Card(
@@ -273,6 +362,65 @@ fun DashboardScreen(
                             }
                         }
                     }
+                }
+            }
+        }
+
+        // --- 1.12. YEARLY FISCAL TRENDS & ANNUAL REPORT ---
+        item {
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f)
+                ),
+                shape = RoundedCornerShape(20.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.2f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { showYearlyReport = true }
+                    .testTag("dashboard_yearly_report_button_card")
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .background(MaterialTheme.colorScheme.secondary, CircleShape)
+                                .size(40.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CalendarMonth,
+                                contentDescription = "Yearly Report Icon",
+                                tint = MaterialTheme.colorScheme.onSecondary
+                            )
+                        }
+                        Column {
+                            Text(
+                                "Annual Fiscal Report",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                            Text(
+                                "Aggregate monthly spend trends & categories breakdown",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
+                            )
+                        }
+                    }
+                    Icon(
+                        imageVector = Icons.Default.ChevronRight,
+                        contentDescription = "Open report",
+                        tint = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.size(20.dp)
+                    )
                 }
             }
         }
@@ -1104,11 +1252,12 @@ fun DashboardScreen(
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(580.dp)
+                                    .height(750.dp)
                             ) {
                                 RechartsTrendWebView(
                                     trendDataJson = trendJson,
                                     budgetBarJson = budgetBarJson,
+                                    monthToMonthDataJson = monthToMonthSpending,
                                     currencySymbol = countryConfig.currencySymbol,
                                     isDark = isDark,
                                     modifier = Modifier.fillMaxSize()
@@ -1260,6 +1409,13 @@ fun DashboardScreen(
         QuickAddExpenseDialog(
             viewModel = viewModel,
             onDismiss = { showQuickAddDialog = false }
+        )
+    }
+
+    if (showYearlyReport) {
+        YearlyReportDialog(
+            viewModel = viewModel,
+            onDismissRequest = { showYearlyReport = false }
         )
     }
 
@@ -2015,6 +2171,7 @@ fun D3ChartWebView(
 fun RechartsTrendWebView(
     trendDataJson: String,
     budgetBarJson: String,
+    monthToMonthDataJson: String,
     currencySymbol: String,
     isDark: Boolean = true,
     modifier: Modifier = Modifier
@@ -2073,6 +2230,13 @@ fun RechartsTrendWebView(
                 </div>
             </div>
 
+            <div class="chart-section">
+                <h3>📅 MONTH-TO-MONTH SPENDING TREND</h3>
+                <div class="canvas-holder" style="height: 165px;">
+                    <canvas id="monthlyTrendChart"></canvas>
+                </div>
+            </div>
+
             <div class="chart-section" style="margin-bottom: 0;">
                 <h3>🍰 CATEGORY EXPENSE BREAKDOWN</h3>
                 <div class="canvas-holder" style="height: 180px;">
@@ -2091,6 +2255,11 @@ fun RechartsTrendWebView(
                 const budgetLabels = budgetRaw.map(d => d.category);
                 const budgetLimits = budgetRaw.map(d => d.Limit);
                 const budgetSpents = budgetRaw.map(d => d.Spent);
+
+                // --- MONTH-TO-MONTH TREND DATA ---
+                const monthlyRaw = [ $monthToMonthDataJson ];
+                const monthlyLabels = monthlyRaw.map(d => d.month);
+                const monthlyValues = monthlyRaw.map(d => d.Spent);
  
                 // Set up Line Chart
                 const trendCtx = document.getElementById('trendChart').getContext('2d');
@@ -2142,7 +2311,6 @@ fun RechartsTrendWebView(
                 // Set up Budget Bar Chart
                 const budgetCtx = document.getElementById('budgetChart').getContext('2d');
                 
-                // Define modern colors: limit bars are always deep blue or light slate; spent bars are green or rose based on overrun
                 const backgroundColors = budgetSpents.map((spent, idx) => {
                     const limit = budgetLimits[idx];
                     return spent > limit ? '#F43F5E' : '${if (isDark) "#10B981" else "#059669"}';
@@ -2196,13 +2364,50 @@ fun RechartsTrendWebView(
                     }
                 });
 
+                // Set up Month-to-Month Spending Trend Chart
+                const monthlyCtx = document.getElementById('monthlyTrendChart').getContext('2d');
+                new Chart(monthlyCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: monthlyLabels,
+                        datasets: [{
+                            label: 'Monthly Spending',
+                            data: monthlyValues,
+                            backgroundColor: '${if (isDark) "#FBBF24" else "#D97706"}',
+                            borderRadius: 4,
+                            barPercentage: 0.5
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false }
+                        },
+                        scales: {
+                            x: {
+                                grid: { color: '${if (isDark) "#1E293B" else "#E2E8F0"}' },
+                                ticks: { color: '${if (isDark) "#94A3B8" else "#4B5563"}', font: { size: 9 } }
+                            },
+                            y: {
+                                grid: { color: '${if (isDark) "#1E293B" else "#E2E8F0"}' },
+                                ticks: {
+                                    color: '${if (isDark) "#94A3B8" else "#4B5563"}',
+                                    font: { size: 9 },
+                                    callback: function(value) { return '$currencySymbol' + value; }
+                                }
+                            }
+                        }
+                    }
+                });
+ 
                 // Set up Breakdown pie chart of only non-zero spent categories
                 const pieCtx = document.getElementById('categoryPieChart').getContext('2d');
                 const nonZeroBudgets = budgetRaw.filter(d => d.Spent > 0);
                 const pieLabels = nonZeroBudgets.length > 0 ? nonZeroBudgets.map(d => d.category) : ["No Expenses"];
                 const pieSpents = nonZeroBudgets.length > 0 ? nonZeroBudgets.map(d => d.Spent) : [0.01];
                 const piePalette = ['#10B981', '#3B82F6', '#FBBF24', '#8B5CF6', '#EC4899', '#EF4444', '#14B8A6', '#F97316', '#22C55E', '#A855F7'];
-
+ 
                 new Chart(pieCtx, {
                     type: 'doughnut',
                     data: {
@@ -2476,4 +2681,419 @@ fun QuickAddExpenseDialog(
             }
         }
     )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun YearlyReportDialog(
+    viewModel: MainViewModel,
+    onDismissRequest: () -> Unit
+) {
+    val rawTransactions by viewModel.filteredTransactions.collectAsState()
+    val categories by viewModel.categories.collectAsState()
+    val config by viewModel.activeCountryConfig.collectAsState()
+
+    val yearsList = remember(rawTransactions) {
+        if (rawTransactions.isEmpty()) {
+            listOf(Calendar.getInstance().get(Calendar.YEAR))
+        } else {
+            rawTransactions.map { tx ->
+                val cal = Calendar.getInstance()
+                cal.timeInMillis = tx.timestamp
+                cal.get(Calendar.YEAR)
+            }.distinct().sortedDescending()
+        }
+    }
+
+    var selectedYear by remember(yearsList) { mutableStateOf(yearsList.first()) }
+
+    val annualTransactions = remember(rawTransactions, selectedYear) {
+        rawTransactions.filter { tx ->
+            val cal = Calendar.getInstance()
+            cal.timeInMillis = tx.timestamp
+            cal.get(Calendar.YEAR) == selectedYear
+        }
+    }
+
+    val totalIncome = remember(annualTransactions) {
+        annualTransactions.filter { it.type == "INCOME" }.sumOf { it.amount }
+    }
+
+    val totalExpense = remember(annualTransactions) {
+        annualTransactions.filter { it.type == "EXPENSE" }.sumOf { it.amount }
+    }
+
+    val netSavings = remember(totalIncome, totalExpense) {
+        totalIncome - totalExpense
+    }
+
+    val monthlySpend = remember(annualTransactions) {
+        val monthsGroup = DoubleArray(12) { 0.0 }
+        annualTransactions.filter { it.type == "EXPENSE" }.forEach { tx ->
+            val cal = Calendar.getInstance()
+            cal.timeInMillis = tx.timestamp
+            val m = cal.get(Calendar.MONTH) // 0 to 11
+            if (m in 0..11) {
+                monthsGroup[m] += tx.amount
+            }
+        }
+        monthsGroup
+    }
+
+    val categoryTotals = remember(annualTransactions, categories) {
+        annualTransactions.filter { it.type == "EXPENSE" }
+            .groupBy { it.categoryId }
+            .map { (catId, txs) ->
+                val catName = categories.find { it.id == catId }?.name ?: "Unassigned"
+                val spent = txs.sumOf { it.amount }
+                catName to spent
+            }.sortedByDescending { it.second }
+    }
+
+    val (peakMonthName, peakMonthAmount) = remember(monthlySpend) {
+        val monthNames = listOf("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
+        var maxVal = 0.0
+        var maxIndex = 0
+        monthlySpend.forEachIndexed { idx, valAmount ->
+            if (valAmount > maxVal) {
+                maxVal = valAmount
+                maxIndex = idx
+            }
+        }
+        if (maxVal > 0.0) {
+            monthNames[maxIndex] to maxVal
+        } else {
+            "None" to 0.0
+        }
+    }
+
+    val singleLargestTransaction = remember(annualTransactions) {
+        annualTransactions.filter { it.type == "EXPENSE" }.maxByOrNull { it.amount }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismissRequest,
+        modifier = Modifier.fillMaxWidth(0.95f).testTag("yearly_report_dialog"),
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Analytics,
+                        contentDescription = "Analytics",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Yearly Fiscal Report",
+                        fontWeight = FontWeight.ExtraBold,
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                }
+                IconButton(onClick = onDismissRequest) {
+                    Icon(imageVector = Icons.Default.Close, contentDescription = "Close Dialog")
+                }
+            }
+        },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                // Year selectors
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(yearsList) { y ->
+                        val isSelected = selectedYear == y
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = { selectedYear = y },
+                            label = { Text("Year $y", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
+                            modifier = Modifier.testTag("report_year_chip_$y")
+                        )
+                    }
+                }
+
+                if (annualTransactions.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(200.dp)
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f), RoundedCornerShape(12.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "No financial records found for Year $selectedYear.\nSwitch or create transactions to view metrics.",
+                            textAlign = TextAlign.Center,
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                        )
+                    }
+                } else {
+                    // Long term trends summary
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text(
+                                text = "LONG-TERM TRENDS SUMMARY",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                letterSpacing = 0.8.sp
+                            )
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                // Income
+                                Card(
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(8.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Text("Total Income", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(viewModel.formatCurrency(totalIncome), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = FintechGreen)
+                                    }
+                                }
+                                // Expense
+                                Card(
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(8.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Text("Total Expense", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(viewModel.formatCurrency(totalExpense), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = ExpenseRose)
+                                    }
+                                }
+                                // Savings
+                                Card(
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(8.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        val saveColor = if (netSavings >= 0) FintechGreen else ExpenseRose
+                                        Text("Net Savings", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(viewModel.formatCurrency(netSavings), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = saveColor)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Spend Trend Column Graph
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = "MONTHLY SPENDING CURVE ($selectedYear)",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            letterSpacing = 0.5.sp
+                        )
+                        AnnualTrendChart(
+                            monthlySpend = monthlySpend,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(120.dp)
+                                .testTag("yearly_trend_chart_canvas")
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            val months = listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+                            months.forEach { m ->
+                                Text(
+                                    text = m,
+                                    fontSize = 8.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                    modifier = Modifier.weight(1f),
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        }
+                    }
+
+                    // Annual Statistics insights list
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.2f)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                "ANNUAL STATISTICAL INSIGHTS",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.secondary
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Average Spend / Month", fontSize = 11.sp)
+                                Text(viewModel.formatCurrency(totalExpense / 12), fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Peak Expense Month", fontSize = 11.sp)
+                                Text("$peakMonthName (${viewModel.formatCurrency(peakMonthAmount)})", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = ExpenseRose)
+                            }
+                            if (singleLargestTransaction != null) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text("Single Largest Purchase", fontSize = 11.sp)
+                                    Text(
+                                        "${singleLargestTransaction.merchant} (${viewModel.formatCurrency(singleLargestTransaction.amount)})",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Category spending breakdown scrolling column
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "ANNUAL CATEGORY BREAKDOWN",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            letterSpacing = 0.5.sp
+                        )
+
+                        // Wrap inside a limited box so it is visually tight but scrollable if many categories exist
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            val maxCatSpend = categoryTotals.firstOrNull()?.second ?: 1.0
+                            categoryTotals.take(4).forEach { (catName, spent) ->
+                                val pctTotal = if (totalExpense > 0) (spent / totalExpense * 100).toInt() else 0
+                                val scalePct = if (maxCatSpend > 0) spent / maxCatSpend else 0.0
+
+                                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(catName, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                        Text(
+                                            text = "${viewModel.formatCurrency(spent)} ($pctTotal%)",
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                    LinearProgressIndicator(
+                                        progress = scalePct.toFloat(),
+                                        modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
+                                        color = MaterialTheme.colorScheme.primary,
+                                        trackColor = MaterialTheme.colorScheme.surfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onDismissRequest,
+                modifier = Modifier.testTag("report_dismiss_button")
+            ) {
+                Text("Dismiss")
+            }
+        }
+    )
+}
+
+@Composable
+fun AnnualTrendChart(
+    monthlySpend: DoubleArray,
+    modifier: Modifier = Modifier
+) {
+    val maxSpend = remember(monthlySpend) {
+        val maxVal = monthlySpend.maxOrNull() ?: 0.0
+        if (maxVal == 0.0) 1.0 else maxVal
+    }
+
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
+
+    Canvas(modifier = modifier) {
+        val width = size.width
+        val height = size.height
+
+        val paddingLeft = 10.dp.toPx()
+        val paddingBottom = 10.dp.toPx()
+        val fillWidth = width - paddingLeft
+        val fillHeight = height - paddingBottom
+        val colWidth = fillWidth / 12
+
+        // Draw horizontal trend grid lines
+        val lineCount = 3
+        for (i in 0..lineCount) {
+            val y = i * (fillHeight / lineCount)
+            drawLine(
+                color = onSurfaceVariant.copy(alpha = 0.08f),
+                start = androidx.compose.ui.geometry.Offset(paddingLeft, y),
+                end = androidx.compose.ui.geometry.Offset(width, y),
+                strokeWidth = 1.dp.toPx()
+            )
+        }
+
+        // Draw vertical columns representation
+        monthlySpend.forEachIndexed { idx, value ->
+            val colHeight = (value / maxSpend) * fillHeight
+            val x = paddingLeft + (idx * colWidth) + (colWidth * 0.15f)
+            val y = fillHeight - colHeight
+
+            drawRect(
+                color = primaryColor,
+                topLeft = androidx.compose.ui.geometry.Offset(x, y.toFloat()),
+                size = androidx.compose.ui.geometry.Size((colWidth * 0.7f), colHeight.toFloat()),
+                alpha = if (value > 0) 1f else 0.12f
+            )
+        }
+    }
 }

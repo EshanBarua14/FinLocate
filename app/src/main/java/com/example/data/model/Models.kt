@@ -163,6 +163,7 @@ data class TransactionEntity(
     val recurrenceInterval: String = "NONE", // NONE, DAILY, WEEKLY, MONTHLY
     val splitCount: Int = 1, // support simple split expense math
     val userEmail: String = "", // sandbox SaaS partition/audit field
+    val tags: String = "",
     val createdAt: Long = System.currentTimeMillis()
 )
 
@@ -224,5 +225,31 @@ data class MatchingRuleEntity(
     val isTaxDeductible: Boolean = false,
     val taxRate: Double = 0.0,
     val notes: String = "",
+    val createdAt: Long = System.currentTimeMillis()
+)
+
+@Entity(
+    tableName = "recurring_transactions",
+    indices = [
+        Index(value = ["accountId"]),
+        Index(value = ["categoryId"])
+    ]
+)
+data class RecurringTransactionEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val amount: Double,
+    val type: String, // INCOME, EXPENSE, TRANSFER
+    val categoryId: Long,
+    val accountId: Long,
+    val toAccountId: Long = -1,
+    val merchant: String = "",
+    val notes: String = "",
+    val recurrenceInterval: String = "MONTHLY", // DAILY, WEEKLY, MONTHLY
+    val lastExecutionTimestamp: Long = 0L,
+    val nextExecutionTimestamp: Long = System.currentTimeMillis(),
+    val isTaxDeductible: Boolean = false,
+    val taxRate: Double = 0.0,
+    val isActive: Boolean = true,
+    val userEmail: String = "",
     val createdAt: Long = System.currentTimeMillis()
 )

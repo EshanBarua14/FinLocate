@@ -28,7 +28,10 @@ import com.example.data.model.CategoryEntity
 import com.example.ui.theme.AccentGold
 import com.example.ui.theme.ExpenseRose
 import com.example.ui.theme.FintechGreen
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -45,10 +48,34 @@ fun BudgetScreen(
     val outflow by viewModel.currentOutflow.collectAsState()
     val predictiveInsights by viewModel.predictiveInsights.collectAsState()
     var showAllInsights by remember { mutableStateOf(false) }
+    var showTemplateSelector by remember { mutableStateOf(false) }
+    var showSaveTemplateDialog by remember { mutableStateOf(false) }
+    var newTemplateName by remember { mutableStateOf("") }
 
     var editingBudget by remember { mutableStateOf<BudgetEntity?>(null) }
     var selectedCategoryIdForNew by remember { mutableStateOf(0L) }
     var showCreateDialog by remember { mutableStateOf(false) }
+
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var isStreakUnlocked by remember { mutableStateOf(false) }
+    var isSavingsUnlocked by remember { mutableStateOf(false) }
+    var isTemplateUnlocked by remember { mutableStateOf(false) }
+
+    LaunchedEffect(budgets, outflow) {
+        val prefs = context.getSharedPreferences("financial_milestones_prefs", android.content.Context.MODE_PRIVATE)
+        isTemplateUnlocked = prefs.getBoolean("template_pioneer_unlocked", false)
+        
+        val budgetSum = budgets.sumOf { it.amount }
+        val remaining = budgetSum - outflow
+        if (remaining > 500.0 && budgetSum > 0) {
+            prefs.edit().putBoolean("savings_champion_unlocked", true).apply()
+            isSavingsUnlocked = true
+        } else {
+            isSavingsUnlocked = prefs.getBoolean("savings_champion_unlocked", false)
+        }
+        
+        isStreakUnlocked = prefs.getBoolean("streak_3_months_unlocked", false)
+    }
 
     val monthTitle = remember(selectedMonth) {
         try {
@@ -185,6 +212,85 @@ fun BudgetScreen(
                 }
             }
 
+            // --- BUDGET TEMPLATES CARD ---
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                    .testTag("budget_templates_card")
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = "BUDGET TEMPLATES",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.sp
+                            )
+                            Text(
+                                text = "Save or pre-fill budget limits from standard presets",
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = { showTemplateSelector = true },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                            ),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                            modifier = Modifier.height(36.dp).weight(1f).testTag("load_template_btn")
+                        ) {
+                            Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Load Preset", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        OutlinedButton(
+                            onClick = { showSaveTemplateDialog = true },
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = MaterialTheme.colorScheme.primary
+                            ),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                            modifier = Modifier.height(36.dp).weight(1f).testTag("save_template_btn")
+                        ) {
+                            Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Save Current", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+
+            // --- 2.2. INTERACTIVE REVENUE VS EXPENSE COMPARITIVE CHART ---
+            val safeOutflow = outflow.coerceAtLeast(0.0)
+            InteractiveComparativeChart(
+                income = inflow,
+                outflow = safeOutflow,
+                currencySymbol = config.currencySymbol,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .testTag("budget_interactive_chart_block")
+            )
+
             // --- MODEL-BASED PREDICTIVE SPENDING GAUGE ---
             if (predictiveInsights.isNotEmpty()) {
                 Card(
@@ -319,6 +425,233 @@ fun BudgetScreen(
                                     }
                                 }
                             }
+                        }
+                    }
+                }
+            }
+
+            // --- FINANCIAL MILESTONES & ACHIEVEMENTS PANEL ---
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .testTag("financial_milestones_card"),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("🎖️", fontSize = 16.sp)
+                            Text(
+                                text = "FINANCIAL MILESTONES & BADGES",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Black,
+                                color = MaterialTheme.colorScheme.primary,
+                                letterSpacing = 0.5.sp
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(4.dp))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            val count = (if (isStreakUnlocked) 1 else 0) + (if (isSavingsUnlocked) 1 else 0) + (if (isTemplateUnlocked) 1 else 0)
+                            Text(
+                                text = "$count / 3 UNLOCKED",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = "Achieve savings target limits and maintain budget health ratios to claim digital badges and boost financial wealth indicators.",
+                        fontSize = 10.sp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                    )
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    // Badges Grid Row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // Badge 1: Fiscal Saint
+                        Card(
+                            modifier = Modifier.weight(1f).testTag("badge_fiscal_saint"),
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isStreakUnlocked) FintechGreen.copy(alpha = 0.1f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                            ),
+                            border = BorderStroke(
+                                1.dp,
+                                if (isStreakUnlocked) FintechGreen.copy(alpha = 0.4f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f)
+                            ),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(8.dp).fillMaxWidth(),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    text = if (isStreakUnlocked) "🛡️" else "🔒",
+                                    fontSize = 24.sp,
+                                    modifier = Modifier.padding(top = 4.dp)
+                                )
+                                Text(
+                                    text = "Fiscal Saint",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.sp,
+                                    color = if (isStreakUnlocked) FintechGreen else MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "3-Mo Under Budget",
+                                    fontSize = 8.sp,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                )
+                            }
+                        }
+
+                        // Badge 2: Savings Champion
+                        Card(
+                            modifier = Modifier.weight(1f).testTag("badge_savings_champion"),
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isSavingsUnlocked) AccentGold.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                            ),
+                            border = BorderStroke(
+                                1.dp,
+                                if (isSavingsUnlocked) AccentGold.copy(alpha = 0.5f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f)
+                            ),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(8.dp).fillMaxWidth(),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    text = if (isSavingsUnlocked) "🏆" else "🔒",
+                                    fontSize = 24.sp,
+                                    modifier = Modifier.padding(top = 4.dp)
+                                )
+                                Text(
+                                    text = "Savings Hero",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.sp,
+                                    color = if (isSavingsUnlocked) AccentGold else MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "Save >${config.currencySymbol}500 Limits",
+                                    fontSize = 8.sp,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                )
+                            }
+                        }
+
+                        // Badge 3: Template Pioneer
+                        Card(
+                            modifier = Modifier.weight(1f).testTag("badge_template_pioneer"),
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isTemplateUnlocked) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                            ),
+                            border = BorderStroke(
+                                1.dp,
+                                if (isTemplateUnlocked) MaterialTheme.colorScheme.primary.copy(alpha = 0.4f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f)
+                            ),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(8.dp).fillMaxWidth(),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    text = if (isTemplateUnlocked) "⚡" else "🔒",
+                                    fontSize = 24.sp,
+                                    modifier = Modifier.padding(top = 4.dp)
+                                )
+                                Text(
+                                    text = "Preset Pilot",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.sp,
+                                    color = if (isTemplateUnlocked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "Load Budget Template",
+                                    fontSize = 8.sp,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    // Interactive actions simulation triggers
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        TextButton(
+                            onClick = {
+                                val prefs = context.getSharedPreferences("financial_milestones_prefs", android.content.Context.MODE_PRIVATE)
+                                val current = prefs.getBoolean("streak_3_months_unlocked", false)
+                                prefs.edit().putBoolean("streak_3_months_unlocked", !current).apply()
+                                isStreakUnlocked = !current
+                                val text = if (isStreakUnlocked) "Fiscal Saint Unlocked! 🛡️" else "Fiscal Saint locked."
+                                android.widget.Toast.makeText(context, text, android.widget.Toast.LENGTH_SHORT).show()
+                            },
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                            modifier = Modifier.height(28.dp).weight(1f).testTag("simulate_streak_btn")
+                        ) {
+                            Text(text = if (isStreakUnlocked) "Reset Saint" else "Earn Streak 🛡️", fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        TextButton(
+                            onClick = {
+                                val prefs = context.getSharedPreferences("financial_milestones_prefs", android.content.Context.MODE_PRIVATE)
+                                val current = prefs.getBoolean("savings_champion_unlocked", false)
+                                prefs.edit().putBoolean("savings_champion_unlocked", !current).apply()
+                                isSavingsUnlocked = !current
+                                val text = if (isSavingsUnlocked) "Savings Hero Unlocked! 🏆" else "Savings Hero locked."
+                                android.widget.Toast.makeText(context, text, android.widget.Toast.LENGTH_SHORT).show()
+                            },
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                            modifier = Modifier.height(28.dp).weight(1f).testTag("simulate_savings_btn")
+                        ) {
+                            Text(text = if (isSavingsUnlocked) "Reset Hero" else "Earn Savings 🏆", fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                val prefs = context.getSharedPreferences("financial_milestones_prefs", android.content.Context.MODE_PRIVATE)
+                                prefs.edit().clear().apply()
+                                isStreakUnlocked = false
+                                isSavingsUnlocked = false
+                                isTemplateUnlocked = false
+                                android.widget.Toast.makeText(context, "Milestones & Achievements Reset", android.widget.Toast.LENGTH_SHORT).show()
+                            },
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.3f)),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                            modifier = Modifier.height(28.dp).testTag("reset_milestones_btn")
+                        ) {
+                            Text("Reset", fontSize = 9.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -575,6 +908,113 @@ fun BudgetScreen(
                 }
             )
         }
+
+        if (showTemplateSelector) {
+            val templates = viewModel.getSavedBudgetTemplates()
+            AlertDialog(
+                onDismissRequest = { showTemplateSelector = false },
+                title = { Text("Load Budget Template", fontWeight = FontWeight.Bold) },
+                text = {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "Selecting a template will replace existing budget allocations for $monthTitle with the template preset values.",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        templates.forEach { temp ->
+                            Card(
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                                ),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        viewModel.loadBudgetTemplate(temp)
+                                        showTemplateSelector = false
+                                        val prefs = context.getSharedPreferences("financial_milestones_prefs", android.content.Context.MODE_PRIVATE)
+                                        prefs.edit().putBoolean("template_pioneer_unlocked", true).apply()
+                                        isTemplateUnlocked = true
+                                    }
+                                    .testTag("template_item_$temp")
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(temp, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                    Icon(
+                                        imageVector = Icons.Default.ChevronRight,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showTemplateSelector = false }) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
+
+        if (showSaveTemplateDialog) {
+            AlertDialog(
+                onDismissRequest = { showSaveTemplateDialog = false },
+                title = { Text("Save Current Budget Limits", fontWeight = FontWeight.Bold) },
+                text = {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "Save your current $monthTitle budget configuration as a custom named template.",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        OutlinedTextField(
+                            value = newTemplateName,
+                            onValueChange = { newTemplateName = it },
+                            label = { Text("Template Name") },
+                            placeholder = { Text("Summer trip, Living plan...") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth().testTag("new_template_name_input")
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            if (newTemplateName.trim().isNotEmpty()) {
+                                viewModel.saveCurrentBudgetAsTemplate(newTemplateName.trim())
+                                newTemplateName = ""
+                                showSaveTemplateDialog = false
+                            }
+                        },
+                        modifier = Modifier.testTag("confirm_save_template_btn")
+                    ) {
+                        Text("Save")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showSaveTemplateDialog = false }) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
     }
 }
 
@@ -737,6 +1177,139 @@ fun BudgetCardItem(
                             .clip(RoundedCornerShape(4.dp))
                             .background(if (goalAchieved) FintechGreen else FintechGreen.copy(alpha = 0.6f))
                     )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun InteractiveComparativeChart(
+    income: Double,
+    outflow: Double,
+    currencySymbol: String,
+    modifier: Modifier = Modifier
+) {
+    var selectedBar by remember { mutableStateOf<String?>(null) } // "INCOME" or "OUTFLOW"
+    
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)),
+        modifier = modifier
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                text = "INFLOW VS SPENT COMPARISON",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.sp,
+                modifier = Modifier.fillMaxWidth()
+            )
+            
+            val maxVal = maxOf(income, outflow, 100.0)
+            val incomeRatio = (income / maxVal).toFloat().coerceIn(0.01f, 1f)
+            val outflowRatio = (outflow / maxVal).toFloat().coerceIn(0.01f, 1f)
+            
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(130.dp)
+                    .padding(vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.Bottom
+            ) {
+                // Income Bar Column
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Bottom,
+                    modifier = Modifier
+                        .clickable { selectedBar = "INCOME" }
+                        .testTag("chart_bar_income")
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(50.dp)
+                            .fillMaxHeight(incomeRatio)
+                            .background(
+                                color = if (selectedBar == "INCOME") FintechGreen else FintechGreen.copy(alpha = 0.5f),
+                                shape = RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp)
+                            )
+                            .border(
+                                width = if (selectedBar == "INCOME") 2.dp else 0.dp,
+                                color = if (selectedBar == "INCOME") MaterialTheme.colorScheme.primary else Color.Transparent,
+                                shape = RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp)
+                            )
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text("Inflow", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                }
+                
+                // Outflow Bar Column
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Bottom,
+                    modifier = Modifier
+                        .clickable { selectedBar = "OUTFLOW" }
+                        .testTag("chart_bar_outflow")
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(50.dp)
+                            .fillMaxHeight(outflowRatio)
+                            .background(
+                                color = if (selectedBar == "OUTFLOW") ExpenseRose else ExpenseRose.copy(alpha = 0.5f),
+                                shape = RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp)
+                            )
+                            .border(
+                                width = if (selectedBar == "OUTFLOW") 2.dp else 0.dp,
+                                color = if (selectedBar == "OUTFLOW") MaterialTheme.colorScheme.primary else Color.Transparent,
+                                shape = RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp)
+                            )
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text("Outflow", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+            
+            // Interactive Display Text
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.04f), RoundedCornerShape(8.dp))
+                    .padding(8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                when (selectedBar) {
+                    "INCOME" -> {
+                        Text(
+                            text = "TOTAL REVENUE: $currencySymbol${"%,.2f".format(income)}",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = FintechGreen
+                        )
+                    }
+                    "OUTFLOW" -> {
+                        Text(
+                            text = "TOTAL SPENT: $currencySymbol${"%,.2f".format(outflow)}",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = ExpenseRose
+                        )
+                    }
+                    else -> {
+                        Text(
+                            text = "Tap on either chart bar for real-time portfolio metrics",
+                            fontSize = 9.sp,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                        )
+                    }
                 }
             }
         }

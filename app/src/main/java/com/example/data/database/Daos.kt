@@ -77,6 +77,9 @@ interface BudgetDao {
 
     @Update
     suspend fun updateBudget(budget: BudgetEntity)
+
+    @Delete
+    suspend fun deleteBudget(budget: BudgetEntity)
 }
 
 @Dao
@@ -149,4 +152,22 @@ interface MatchingRuleDao {
 
     @Query("DELETE FROM matching_rules")
     suspend fun clearRules()
+}
+
+@Dao
+interface RecurringTransactionDao {
+    @Query("SELECT * FROM recurring_transactions ORDER BY createdAt DESC")
+    fun getAllRecurringFlow(): Flow<List<RecurringTransactionEntity>>
+
+    @Query("SELECT * FROM recurring_transactions WHERE isActive = 1")
+    suspend fun getActiveRecurringStatic(): List<RecurringTransactionEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertRecurring(recurring: RecurringTransactionEntity): Long
+
+    @Update
+    suspend fun updateRecurring(recurring: RecurringTransactionEntity)
+
+    @Delete
+    suspend fun deleteRecurring(recurring: RecurringTransactionEntity)
 }

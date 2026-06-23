@@ -17,12 +17,30 @@ class FinanceRepository(private val db: AppDatabase) {
     private val insightDao = db.insightDao()
     private val userDao = db.userDao()
     private val countryConfigDao = db.countryConfigDao()
+    private val recurringTransactionDao = db.recurringTransactionDao()
 
     // --- Observable Flows ---
     val allAccounts: Flow<List<AccountEntity>> = accountDao.getAllAccounts()
     val allTransactions: Flow<List<TransactionEntity>> = transactionDao.getAllTransactions()
     val allInsights: Flow<List<InsightEntity>> = insightDao.getAllInsights()
     val activeCountrySetting: Flow<CountrySettingEntity?> = countrySettingDao.getCountrySettingFlow()
+    val allRecurring: Flow<List<RecurringTransactionEntity>> = recurringTransactionDao.getAllRecurringFlow()
+
+    suspend fun insertRecurring(recurring: RecurringTransactionEntity) = withContext(Dispatchers.IO) {
+        recurringTransactionDao.insertRecurring(recurring)
+    }
+
+    suspend fun updateRecurring(recurring: RecurringTransactionEntity) = withContext(Dispatchers.IO) {
+        recurringTransactionDao.updateRecurring(recurring)
+    }
+
+    suspend fun deleteRecurring(recurring: RecurringTransactionEntity) = withContext(Dispatchers.IO) {
+        recurringTransactionDao.deleteRecurring(recurring)
+    }
+
+    suspend fun getActiveRecurringStatic(): List<RecurringTransactionEntity> = withContext(Dispatchers.IO) {
+        recurringTransactionDao.getActiveRecurringStatic()
+    }
 
     fun getTransactionsInRange(start: Long, end: Long): Flow<List<TransactionEntity>> =
         transactionDao.getTransactionsInRange(start, end)
@@ -136,6 +154,10 @@ class FinanceRepository(private val db: AppDatabase) {
 
     suspend fun updateBudget(budget: BudgetEntity) = withContext(Dispatchers.IO) {
         budgetDao.updateBudget(budget)
+    }
+
+    suspend fun deleteBudget(budget: BudgetEntity) = withContext(Dispatchers.IO) {
+        budgetDao.deleteBudget(budget)
     }
 
     suspend fun setCountrySetting(countryName: String, forceReSeed: Boolean = false) = withContext(Dispatchers.IO) {

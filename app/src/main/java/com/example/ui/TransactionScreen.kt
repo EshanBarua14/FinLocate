@@ -1,5 +1,10 @@
 package com.example.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.widget.Toast
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -39,9 +44,11 @@ fun TransactionScreen(
     val categories by viewModel.categories.collectAsState()
     val selectedMonth by viewModel.selectedMonth.collectAsState()
     val config by viewModel.activeCountryConfig.collectAsState()
+    val aiInsightsLoading by viewModel.aiInsightsLoading.collectAsState()
     val context = androidx.compose.ui.platform.LocalContext.current
 
     var showAddSheet by remember { mutableStateOf(false) }
+    var showImportDialog by remember { mutableStateOf(false) }
 
     // Search and Filter states
     var searchQuery by remember { mutableStateOf("") }
@@ -64,10 +71,20 @@ fun TransactionScreen(
 
     var showAdvancedFilters by remember { mutableStateOf(false) }
 
+    var selectedTagFilter by remember { mutableStateOf<String?>(null) }
+    val allTagsList = remember(transactions) {
+        transactions.flatMap { tx ->
+            tx.tags.split(",")
+                .map { it.trim().lowercase() }
+                .filter { it.isNotEmpty() }
+        }.distinct().sorted()
+    }
+
     // Compute the robust offline in-memory filtered transactions
     val displayedTransactions = remember(
         transactions, searchQuery, selectedCategoryIdFilter, minAmountQuery, maxAmountQuery, 
-        resolvedStartDate, categories, selectedCurrencyFilter, customStartDate, customEndDate, config
+        resolvedStartDate, categories, selectedCurrencyFilter, customStartDate, customEndDate, config,
+        selectedTagFilter
     ) {
         transactions.filter { tx ->
             // Search text matching
@@ -76,6 +93,7 @@ fun TransactionScreen(
             } else {
                 tx.merchant.contains(searchQuery, ignoreCase = true) ||
                 tx.notes.contains(searchQuery, ignoreCase = true) ||
+                tx.tags.contains(searchQuery, ignoreCase = true) ||
                 (categories.find { it.id == tx.categoryId }?.name?.contains(searchQuery, ignoreCase = true) == true)
             }
 
@@ -126,7 +144,16 @@ fun TransactionScreen(
                 (selectedCurrencyFilter!! == config.currency && !noteStr.contains("usd") && !noteStr.contains("eur") && !noteStr.contains("gbp") && !noteStr.contains("jpy") && !noteStr.contains("cad") && !noteStr.contains("aud") && !noteStr.contains("inr") && !noteStr.contains("sgd") && !noteStr.contains("bdt"))
             }
 
-            matchesSearch && matchesCategory && matchesMin && matchesMax && matchesDate && matchesCustomDate && matchesCurrency
+            // Custom tag matching
+            val matchesTag = if (selectedTagFilter == null) {
+                true
+            } else {
+                tx.tags.split(",")
+                    .map { it.trim().lowercase() }
+                    .contains(selectedTagFilter!!.lowercase())
+            }
+
+            matchesSearch && matchesCategory && matchesMin && matchesMax && matchesDate && matchesCustomDate && matchesCurrency && matchesTag
         }
     }
 
@@ -191,6 +218,40 @@ fun TransactionScreen(
                         modifier = Modifier.testTag("next_month_btn")
                     ) {
                         Icon(imageVector = Icons.Default.ChevronRight, contentDescription = "Next Month")
+                    }
+                }
+            }
+
+            if (aiInsightsLoading) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.9f)),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                        .testTag("ai_insights_loading_card")
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        CircularProgressIndicator(
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            strokeWidth = 2.dp,
+                            modifier = Modifier
+                                .size(18.dp)
+                                .testTag("ai_insights_loading_spinner")
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = "AI-Engine Analyzing Spend & Fiscal Trends...",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
                     }
                 }
             }
@@ -275,6 +336,42 @@ fun TransactionScreen(
                                 imageVector = Icons.Default.FileDownload,
                                 contentDescription = "Export CSV Backup",
                                 tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
+                        IconButton(
+                            onClick = { showImportDialog = true },
+                            modifier = Modifier
+                                .size(44.dp)
+                                .background(
+                                    color = MaterialTheme.colorScheme.surface,
+                                    shape = RoundedCornerShape(8.dp)
+                                )
+                                .testTag("ledger_import_csv_btn")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.FileUpload,
+                                contentDescription = "Import CSV Backup",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
+                        IconButton(
+                            onClick = { viewModel.exportReportToPdf(context) },
+                            modifier = Modifier
+                                .size(44.dp)
+                                .background(
+                                    color = MaterialTheme.colorScheme.surface,
+                                    shape = RoundedCornerShape(8.dp)
+                                )
+                                .testTag("ledger_export_pdf_btn")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PictureAsPdf,
+                                contentDescription = "Export PDF Statement",
+                                tint = MaterialTheme.colorScheme.secondary,
                                 modifier = Modifier.size(18.dp)
                             )
                         }
@@ -448,6 +545,42 @@ fun TransactionScreen(
                             }
                         }
 
+                        // Custom Tag Filter Row
+                        if (allTagsList.isNotEmpty()) {
+                            Column {
+                                Text(
+                                    "Filter by custom tag:",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                LazyRow(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    item {
+                                        val isAllSelected = selectedTagFilter == null
+                                        FilterChip(
+                                            selected = isAllSelected,
+                                            onClick = { selectedTagFilter = null },
+                                            label = { Text("All Tags", fontSize = 10.sp) },
+                                            modifier = Modifier.testTag("chip_tag_all")
+                                        )
+                                    }
+                                    items(allTagsList) { tag ->
+                                        val isSelected = selectedTagFilter == tag
+                                        FilterChip(
+                                            selected = isSelected,
+                                            onClick = { selectedTagFilter = tag },
+                                            label = { Text("#$tag", fontSize = 10.sp) },
+                                            modifier = Modifier.testTag("chip_tag_$tag")
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
                         // Reset Button Row
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -460,6 +593,7 @@ fun TransactionScreen(
                                     minAmountQuery = ""
                                     maxAmountQuery = ""
                                     selectedCurrencyFilter = null
+                                    selectedTagFilter = null
                                     customStartDate = ""
                                     customEndDate = ""
                                     dateRangePreset = "ALL"
@@ -541,7 +675,152 @@ fun TransactionScreen(
                 onDismiss = { showAddSheet = false }
             )
         }
+
+        if (showImportDialog) {
+            CsvImportDialog(
+                viewModel = viewModel,
+                onDismissRequest = { showImportDialog = false }
+            )
+        }
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CsvImportDialog(
+    viewModel: MainViewModel,
+    onDismissRequest: () -> Unit
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var csvText by remember { mutableStateOf("") }
+    
+    // Setup file content picker launcher
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri?.let {
+            try {
+                val inputStream = context.contentResolver.openInputStream(it)
+                val content = inputStream?.bufferedReader().use { r -> r?.readText() } ?: ""
+                csvText = content
+            } catch (e: Exception) {
+                Toast.makeText(context, "Failed to read empty or invalid file.", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismissRequest,
+        modifier = Modifier.testTag("csv_import_dialog"),
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.FileUpload,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("CSV Migration Center", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = "Transfer transactions from other systems seamlessly. Columns mapping:",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                )
+                
+                // Show mapping column helpers
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "Date, Merchant, Amount, Type, Category, Notes, Tags\ne.g. 2026-06-25, Starbucks, 4.50, EXPENSE, Food, Coffee, breakfast",
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 9.sp,
+                        modifier = Modifier.padding(8.dp),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Button(
+                        onClick = { filePickerLauncher.launch("text/*") },
+                        modifier = Modifier.weight(1f).testTag("csv_select_file_btn"),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Icon(Icons.Default.AttachFile, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Text("Browse File...", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    Button(
+                        onClick = {
+                            csvText = """Date,Merchant,Amount,Type,Category,Notes,Tags
+2026-06-20,Organic Farm,42.50,EXPENSE,Groceries,Weekly greens,grocery,diet
+2026-06-21,Salary Employer,1200.00,INCOME,Salary,Monthly payout,job,recurring
+2026-06-22,Gas Station,35.00,EXPENSE,Fuel,Highway fill-up,commute,transit"""
+                        },
+                        modifier = Modifier.weight(1f).testTag("csv_load_demo_btn"),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Icon(Icons.Default.Bolt, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Text("Load Demo", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                OutlinedTextField(
+                    value = csvText,
+                    onValueChange = { csvText = it },
+                    label = { Text("CSV Text Input", fontSize = 12.sp) },
+                    placeholder = { Text("Paste spreadsheet lines here...", fontSize = 11.sp) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(180.dp)
+                        .testTag("csv_textarea_input"),
+                    textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 10.sp),
+                    maxLines = 15
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (csvText.isNotBlank()) {
+                        viewModel.importCsvData(csvText, context)
+                        onDismissRequest()
+                    }
+                },
+                enabled = csvText.isNotBlank(),
+                modifier = Modifier.testTag("csv_import_submit_btn")
+            ) {
+                Text("Process Import", fontWeight = FontWeight.ExtraBold)
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismissRequest,
+                modifier = Modifier.testTag("csv_import_cancel_btn")
+            ) {
+                Text("Cancel")
+            }
+        }
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -917,6 +1196,32 @@ fun TransactionItemRow(
                         ) {
                             Text("SPLIT ÷${transaction.splitCount}", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                         }
+                    }
+                }
+                if (transaction.tags.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(3.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        transaction.tags.split(",")
+                            .map { it.trim() }
+                            .filter { it.isNotEmpty() }
+                            .forEach { tag ->
+                                Box(
+                                    modifier = Modifier
+                                        .background(MaterialTheme.colorScheme.secondary.copy(alpha = 0.12f), RoundedCornerShape(4.dp))
+                                        .padding(horizontal = 5.dp, vertical = 2.dp)
+                                        .testTag("tx_tag_badge_${transaction.id}_$tag")
+                                ) {
+                                    Text(
+                                        text = "#$tag",
+                                        fontSize = 8.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.secondary
+                                    )
+                                }
+                            }
                     }
                 }
                 Text(

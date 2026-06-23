@@ -40,6 +40,29 @@ import android.graphics.Bitmap
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 
+fun saveReceiptImage(context: android.content.Context, bitmap: Bitmap, merchant: String, amount: String): String {
+    val dir = java.io.File(context.filesDir, "receipt_images")
+    if (!dir.exists()) {
+        dir.mkdirs()
+    }
+    val timestamp = System.currentTimeMillis()
+    val file = java.io.File(dir, "receipt_${timestamp}.png")
+    try {
+        java.io.FileOutputStream(file).use { out ->
+            bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+        }
+        val sharedPrefs = context.getSharedPreferences("receipt_gallery_metadata", android.content.Context.MODE_PRIVATE)
+        val metadataList = sharedPrefs.getStringSet("receipts_meta_set", null)?.toMutableSet() ?: mutableSetOf()
+        val metaString = "${file.absolutePath}|$merchant|$amount|$timestamp"
+        metadataList.add(metaString)
+        sharedPrefs.edit().putStringSet("receipts_meta_set", metadataList).apply()
+        return file.absolutePath
+    } catch (e: Exception) {
+        e.printStackTrace()
+        return ""
+    }
+}
+
 @Composable
 fun RapidEntryScreen(
     viewModel: MainViewModel,
@@ -608,6 +631,61 @@ fun DetailedFormLayout(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
+    var showVoiceDialog by remember { mutableStateOf(false) }
+    var tagsString by remember { mutableStateOf("") }
+    
+    val voiceLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            val spokenTextSet = result.data?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)
+            val spokenText = spokenTextSet?.firstOrNull() ?: ""
+            if (spokenText.isNotEmpty()) {
+                val doubleAmountPattern = """(\d+(?:\.\d{1,2})?)""".toRegex()
+                val matchResults = doubleAmountPattern.findAll(spokenText.lowercase(Locale.US))
+                var foundAmount = ""
+                for (match in matchResults) {
+                    val candidate = match.value
+                    if ((candidate.toDoubleOrNull() ?: 0.0) > 0.0) {
+                        foundAmount = candidate
+                        break
+                    }
+                }
+                
+                var foundMerchant = ""
+                val merchantPatterns = listOf("at ([a-zA-Z0-9\\s]+)", "from ([a-zA-Z0-9\\s]+)", "for ([a-zA-Z0-9\\s]+)")
+                for (patternStr in merchantPatterns) {
+                    val regex = patternStr.toRegex()
+                    val match = regex.find(spokenText)
+                    if (match != null && match.groupValues.size > 1) {
+                        val candidate = match.groupValues[1].split("on ", "for ", "tomorrow ", "today ", "yesterday ", "the ").first().trim()
+                        if (candidate.isNotEmpty() && !candidate.equals("spent", ignoreCase = true)) {
+                            foundMerchant = candidate
+                            break
+                        }
+                    }
+                }
+                
+                var foundCategoryId = selectedCategoryId
+                categories.forEach { cat ->
+                    val catNameLower = cat.name.lowercase(Locale.US)
+                    if (spokenText.lowercase(Locale.US).contains(catNameLower) || catNameLower.split("&", " ").any { it.length > 3 && spokenText.lowercase(Locale.US).contains(it) }) {
+                        foundCategoryId = cat.id
+                    }
+                }
+                
+                if (foundAmount.isNotEmpty()) {
+                    onFormAmountChange(foundAmount)
+                }
+                if (foundMerchant.isNotEmpty()) {
+                    onMerchantChange(foundMerchant.replaceFirstChar { it.uppercase() })
+                }
+                onNotesChange("Narrated: \"$spokenText\"")
+                onCategoryIdChange(foundCategoryId)
+                Toast.makeText(context, "Voice Applied: $spokenText", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -656,10 +734,20 @@ fun DetailedFormLayout(
                                         onDateChange(parsedDate.time)
                                     }
                                 }
-                                Toast.makeText(context, "Receipt Scanned Successfully!", Toast.LENGTH_SHORT).show()
+                                try {
+                                    saveReceiptImage(context, bitmap, extractedMerchant.ifEmpty { "Scanned Receipt" }, extractedAmountStr.ifEmpty { "0.00" })
+                                } catch (err: Exception) {
+                                    err.printStackTrace()
+                                }
+                                Toast.makeText(context, "Receipt Scanned & Saved to Gallery!", Toast.LENGTH_SHORT).show()
                             }
                         } else {
-                            Toast.makeText(context, "Could not extract clear information from receipt image.", Toast.LENGTH_SHORT).show()
+                            try {
+                                saveReceiptImage(context, bitmap, "Scanned Vendor", "0.00")
+                            } catch (err: Exception) {
+                                err.printStackTrace()
+                            }
+                            Toast.makeText(context, "Receipt Saved (OCR processing failed).", Toast.LENGTH_SHORT).show()
                         }
                     } catch (e: Exception) {
                         Toast.makeText(context, "Error reading receipt: ${e.message}", Toast.LENGTH_LONG).show()
@@ -726,6 +814,199 @@ fun DetailedFormLayout(
             }
         }
 
+        // --- AI VOICE NARRATION CARD & DIALOG ---
+        Card(
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.12f)
+            ),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.3f)),
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable {
+                    showVoiceDialog = true
+                }
+                .testTag("voice_narrate_btn")
+        ) {
+            Row(
+                modifier = Modifier.padding(12.dp).fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Mic,
+                    contentDescription = "Voice dictaphone",
+                    tint = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.size(24.dp)
+                )
+                Column {
+                    Text("AI Speak & Log Narrator", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
+                    Text("Narrate expenses instantly (e.g. \"Spent 12 at Starbucks\")", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                }
+            }
+        }
+
+        if (showVoiceDialog) {
+            var inputVoiceSimulationText by remember { mutableStateOf("") }
+            val voicePresets = listOf(
+                "Spent 14.50 at BlueBottle for cappuccino",
+                "Dinner at McDonalds for 18.00",
+                "Spent 120 on Groceries today",
+                "Paid 35 dollars for Uber ride"
+            )
+            AlertDialog(
+                onDismissRequest = { showVoiceDialog = false },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Icon(imageVector = Icons.Default.Mic, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
+                        Text("AI Voice Dictation Narrator", fontWeight = FontWeight.Bold)
+                    }
+                },
+                text = {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "Speak or enter your expense narration in natural language. Our system parses values, merchant names, and matches categories automatically.",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Button(
+                            onClick = {
+                                val intent = android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                                    putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                                    putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+                                    putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Narrate your transaction")
+                                }
+                                try {
+                                    voiceLauncher.launch(intent)
+                                    showVoiceDialog = false
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "Voice recognizer not supported on this device. Use simulation/preset templates below.", Toast.LENGTH_LONG).show()
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.secondary,
+                                contentColor = MaterialTheme.colorScheme.onSecondary
+                            ),
+                            modifier = Modifier.fillMaxWidth().height(48.dp).testTag("start_voice_recording_btn")
+                        ) {
+                            Icon(imageVector = Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("START VOICE RECORDING", fontWeight = FontWeight.Bold)
+                        }
+                        
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            HorizontalDivider(modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+                            Text("OR DICTATE RAW TEXT", fontSize = 9.sp, modifier = Modifier.padding(horizontal = 8.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f))
+                            HorizontalDivider(modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+                        }
+                        
+                        OutlinedTextField(
+                            value = inputVoiceSimulationText,
+                            onValueChange = { inputVoiceSimulationText = it },
+                            label = { Text("Enter Spoken Narration Text") },
+                            placeholder = { Text("Spent 12.50 at Starbucks today...") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth().testTag("voice_simulation_input")
+                        )
+                        
+                        Text("TAP QUICK SIMULATION PRESET:", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            voicePresets.forEach { preset ->
+                                Card(
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                                    ),
+                                    shape = RoundedCornerShape(6.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            inputVoiceSimulationText = preset
+                                        }
+                                ) {
+                                    Text(
+                                        text = preset,
+                                        fontSize = 11.sp,
+                                        modifier = Modifier.padding(8.dp),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            if (inputVoiceSimulationText.trim().isNotEmpty()) {
+                                val spokenText = inputVoiceSimulationText.trim()
+                                val doubleAmountPattern = """(\d+(?:\.\d{1,2})?)""".toRegex()
+                                val matchResults = doubleAmountPattern.findAll(spokenText.lowercase(Locale.US))
+                                var foundAmount = ""
+                                for (match in matchResults) {
+                                    val candidate = match.value
+                                    if ((candidate.toDoubleOrNull() ?: 0.0) > 0.0) {
+                                        foundAmount = candidate
+                                        break
+                                    }
+                                }
+                                
+                                var foundMerchant = ""
+                                val merchantPatterns = listOf("at ([a-zA-Z0-9\\s]+)", "from ([a-zA-Z0-9\\s]+)", "for ([a-zA-Z0-9\\s]+)")
+                                for (patternStr in merchantPatterns) {
+                                    val regex = patternStr.toRegex()
+                                    val match = regex.find(spokenText)
+                                    if (match != null && match.groupValues.size > 1) {
+                                        val candidate = match.groupValues[1].split("on ", "for ", "tomorrow ", "today ", "yesterday ", "the ").first().trim()
+                                        if (candidate.isNotEmpty() && !candidate.equals("spent", ignoreCase = true)) {
+                                            foundMerchant = candidate
+                                            break
+                                        }
+                                    }
+                                }
+                                
+                                var foundCategoryId = selectedCategoryId
+                                categories.forEach { cat ->
+                                    val catNameLower = cat.name.lowercase(Locale.US)
+                                    if (spokenText.lowercase(Locale.US).contains(catNameLower) || catNameLower.split("&", " ").any { it.length > 3 && spokenText.lowercase(Locale.US).contains(it) }) {
+                                        foundCategoryId = cat.id
+                                    }
+                                }
+                                
+                                if (foundAmount.isNotEmpty()) {
+                                    onFormAmountChange(foundAmount)
+                                }
+                                if (foundMerchant.isNotEmpty()) {
+                                    onMerchantChange(foundMerchant.replaceFirstChar { it.uppercase() })
+                                }
+                                onNotesChange("Narrated: \"$spokenText\"")
+                                onCategoryIdChange(foundCategoryId)
+                                Toast.makeText(context, "Narrative applied successfully!", Toast.LENGTH_SHORT).show()
+                                showVoiceDialog = false
+                            } else {
+                                Toast.makeText(context, "Please enter some narration or start recording.", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                        modifier = Modifier.testTag("apply_voice_simulation_btn")
+                    ) {
+                        Text("Apply")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showVoiceDialog = false }) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
+
         // ---- AMOUNT & CURRENCY ROW ----
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -777,6 +1058,64 @@ fun DetailedFormLayout(
                             }
                         )
                     }
+                }
+            }
+        }
+
+        // --- DYNAMIC MULTI-CURRENCY CONVERSION PREVIEW — FETCH STABLE RATES ---
+        val doubleAmount = formAmount.toDoubleOrNull() ?: 0.0
+        val portfolioEquivalent = viewModel.convertCurrency(doubleAmount, formCurrency, config.currency)
+        
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.03f), RoundedCornerShape(8.dp))
+                .padding(8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                if (formCurrency.uppercase() != config.currency.uppercase() && doubleAmount > 0.0) {
+                    Text(
+                        text = "Portfolio Est: ${config.currencySymbol}${"%,.2f".format(portfolioEquivalent)} (${config.currency})",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = FintechGreen,
+                        modifier = Modifier.testTag("currency_conversion_text")
+                    )
+                    Text(
+                        text = "Rates pegged live based to sovereign USD base",
+                        fontSize = 8.sp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                    )
+                } else {
+                    Text(
+                        text = "Portfolio Currency: ${config.currency} (${config.currencySymbol})",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = "1.00 USD @ fallback sovereign indexes",
+                        fontSize = 8.sp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                    )
+                }
+            }
+
+            TextButton(
+                onClick = {
+                    viewModel.triggerExchangeRatesFetch(
+                        onSuccess = { msg -> Toast.makeText(context, msg, Toast.LENGTH_SHORT).show() },
+                        onFailure = { err -> Toast.makeText(context, err, Toast.LENGTH_SHORT).show() }
+                    )
+                },
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                modifier = Modifier.height(30.dp).testTag("fetch_live_rates_btn")
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Icon(imageVector = Icons.Default.Refresh, contentDescription = "Sync", modifier = Modifier.size(11.dp))
+                    Text("FETCH LIVE RATES", fontSize = 8.5.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -1080,6 +1419,17 @@ fun DetailedFormLayout(
             modifier = Modifier.fillMaxWidth().testTag("form_notes_field")
         )
 
+        Spacer(modifier = Modifier.height(8.dp))
+
+        OutlinedTextField(
+            value = tagsString,
+            onValueChange = { tagsString = it },
+            label = { Text("Custom tags (comma separated)") },
+            placeholder = { Text("e.g. coffee, travel, subscription", fontSize = 12.sp) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth().testTag("form_tags_field")
+        )
+
         Spacer(modifier = Modifier.height(16.dp))
 
         // ---- RECORD SUBMIT BUTTON ----
@@ -1103,7 +1453,8 @@ fun DetailedFormLayout(
                         notes = notes.ifEmpty { "Form logged ($formCurrency $amt with dynamic mapping: $selectedTaxCategory)" },
                         isRecurring = isRecurring,
                         recurrenceInterval = recurrenceInterval,
-                        customTimestamp = selectedDate
+                        customTimestamp = selectedDate,
+                        tags = tagsString
                     )
                     onDismiss()
                 }

@@ -245,6 +245,186 @@ fun CountryScreen(
             }
         }
 
+        // --- INSTANT CURRENCY CONVERTER ---
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("currency_calc_card")
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "INSTANT CURRENCY CONVERTER",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.sp
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Estimate transaction values in real-time",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    var calcAmount by remember { mutableStateOf("100") }
+                    var calcFromCur by remember { mutableStateOf("USD") }
+                    var calcToCur by remember { mutableStateOf("EUR") }
+                    var showFromMenu by remember { mutableStateOf(false) }
+                    var showToMenu by remember { mutableStateOf(false) }
+
+                    val currenciesList = listOf("USD", "EUR", "GBP", "JPY", "CAD", "AUD", "INR", "SGD", "BDT")
+
+                    val doubleAmount = calcAmount.toDoubleOrNull() ?: 100.0
+                    val convertedEstimate = viewModel.convertCurrency(doubleAmount, calcFromCur, calcToCur)
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = calcAmount,
+                            onValueChange = { calcAmount = it },
+                            label = { Text("Amount") },
+                            placeholder = { Text("100") },
+                            singleLine = true,
+                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                            ),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("conversion_calc_amount"),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                unfocusedBorderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
+                            )
+                        )
+
+                        // FROM Dropdown
+                        Box {
+                            Button(
+                                onClick = { showFromMenu = true },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                ),
+                                contentPadding = PaddingValues(horizontal = 12.dp),
+                                modifier = Modifier
+                                    .width(90.dp)
+                                    .height(56.dp)
+                                    .testTag("conversion_from_dropdown")
+                            ) {
+                                Text(calcFromCur, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            }
+                            DropdownMenu(
+                                expanded = showFromMenu,
+                                onDismissRequest = { showFromMenu = false }
+                            ) {
+                                currenciesList.forEach { cur ->
+                                    DropdownMenuItem(
+                                        text = { Text(cur) },
+                                        onClick = {
+                                            calcFromCur = cur
+                                            showFromMenu = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+
+                        Text(
+                            text = "➔",
+                            fontSize = 16.sp,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                        )
+
+                        // TO Dropdown
+                        Box {
+                            Button(
+                                onClick = { showToMenu = true },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                ),
+                                contentPadding = PaddingValues(horizontal = 12.dp),
+                                modifier = Modifier
+                                    .width(90.dp)
+                                    .height(56.dp)
+                                    .testTag("conversion_to_dropdown")
+                            ) {
+                                Text(calcToCur, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            }
+                            DropdownMenu(
+                                expanded = showToMenu,
+                                onDismissRequest = { showToMenu = false }
+                            ) {
+                                currenciesList.forEach { cur ->
+                                    DropdownMenuItem(
+                                        text = { Text(cur) },
+                                        onClick = {
+                                            calcToCur = cur
+                                            showToMenu = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "ESTIMATED VALUE (LOCAL RATES)",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                letterSpacing = 0.5.sp
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = String.format(java.util.Locale.US, "%.2f %s", convertedEstimate, calcToCur),
+                                fontSize = 24.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.testTag("conversion_calc_result")
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Calculated relative to 1 USD = ${viewModel.exchangeRates.collectAsState().value[calcToCur] ?: 1.0} $calcToCur",
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
         // --- CATEGORY-SPECIFIC TAX RATES ---
         item {
             var isTaxCategoriesExpanded by remember { mutableStateOf(false) }

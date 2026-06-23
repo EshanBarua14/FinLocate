@@ -24,6 +24,52 @@ import com.example.ui.theme.FintechGreen
 
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.Backup
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Receipt
+import coil.compose.AsyncImage
+
+data class ReceiptGalleryItem(
+    val filePath: String,
+    val merchant: String,
+    val amount: String,
+    val timestamp: Long
+)
+
+fun getReceiptsList(context: android.content.Context): List<ReceiptGalleryItem> {
+    val sharedPrefs = context.getSharedPreferences("receipt_gallery_metadata", android.content.Context.MODE_PRIVATE)
+    val set = sharedPrefs.getStringSet("receipts_meta_set", emptySet()) ?: emptySet()
+    return set.mapNotNull { str ->
+        val parts = str.split("|")
+        if (parts.size >= 4) {
+            ReceiptGalleryItem(
+                filePath = parts[0],
+                merchant = parts[1],
+                amount = parts[2],
+                timestamp = parts[3].toLongOrNull() ?: 0L
+            )
+        } else null
+    }.sortedByDescending { it.timestamp }
+}
+
+fun deleteReceiptImage(context: android.content.Context, item: ReceiptGalleryItem) {
+    try {
+        val file = java.io.File(item.filePath)
+        if (file.exists()) {
+            file.delete()
+        }
+    } catch (e: Exception) {
+        e.printStackTrace()
+    }
+    val sharedPrefs = context.getSharedPreferences("receipt_gallery_metadata", android.content.Context.MODE_PRIVATE)
+    val set = sharedPrefs.getStringSet("receipts_meta_set", emptySet()) ?: emptySet()
+    val newSet = set.filter { !it.startsWith(item.filePath + "|") }.toSet()
+    sharedPrefs.edit().putStringSet("receipts_meta_set", newSet).apply()
+}
 
 @Composable
 fun TaxScreen(
@@ -51,6 +97,12 @@ fun TaxScreen(
     }
 
     var showExportSuccess by remember { mutableStateOf(false) }
+    var receiptsList by remember { mutableStateOf(getReceiptsList(context)) }
+    var selectedReceiptForDetail by remember { mutableStateOf<ReceiptGalleryItem?>(null) }
+
+    LaunchedEffect(Unit) {
+        receiptsList = getReceiptsList(context)
+    }
 
     LazyColumn(
         modifier = modifier
@@ -190,6 +242,114 @@ fun TaxScreen(
             }
         }
 
+        // --- SECURE CLOUD BACKUP & END-TO-END ENCRYPTION ---
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp)
+            ) {
+                var backupStatus by remember { mutableStateOf("") }
+                var isBackingUp by remember { mutableStateOf(false) }
+                val context = LocalContext.current
+
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CloudUpload,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Column {
+                            Text(
+                                text = "ENCRYPTED SQLITE CLOUD BACKUP",
+                                fontWeight = FontWeight.ExtraBold,
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "Secure offline-first system snapshot",
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Text(
+                        text = "Encodes and packages all transactions, custom category budgets, configured key store structures, and accounts into an end-to-end AES-256 encrypted .db.enc backup vault, directly syncing to WealthFlow secure cloud.",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                        lineHeight = 15.sp
+                    )
+
+                    if (backupStatus.isNotEmpty() && backupStatus != "SUCCESS") {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.05f), RoundedCornerShape(8.dp))
+                                .padding(10.dp)
+                        ) {
+                            Text(
+                                text = backupStatus,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Button(
+                        onClick = {
+                            isBackingUp = true
+                            viewModel.exportSqliteDatabaseEncrypted(context) { status ->
+                                backupStatus = status
+                                if (status == "SUCCESS" || status.startsWith("Backup failed")) {
+                                    isBackingUp = false
+                                }
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .testTag("encrypted_backup_btn"),
+                        enabled = !isBackingUp
+                    ) {
+                        if (isBackingUp) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("COMMITTING BACKUP...", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        } else {
+                            Icon(imageVector = Icons.Default.Backup, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("CREATE CLOUD BACKUP NOW", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+        }
+
         // --- 2. LOCAL CODES DISPLAY ---
         item {
             Card(
@@ -292,6 +452,201 @@ fun TaxScreen(
                 TaxTransactionRow(row = row, category = categories.find { it.id == row.categoryId }, formatter = { viewModel.formatCurrency(it) })
             }
         }
+
+        // --- SCANNED RECEIPTS GALLERY SECTION ---
+        item {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "AI SMART RECEIPTS GALLERY",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp
+                )
+                
+                if (receiptsList.isEmpty()) {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("receipt_gallery_empty_card")
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Receipt,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f),
+                                modifier = Modifier.size(36.dp)
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "Your receipts gallery is currently empty.",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            )
+                            Text(
+                                text = "Go to Transaction Ledger -> Add '+' -> AI Smart Camera Receipt Import to archive purchase proofs.",
+                                fontSize = 10.sp,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+                                modifier = Modifier.padding(horizontal = 8.dp)
+                            )
+                        }
+                    }
+                } else {
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("receipt_gallery_row")
+                    ) {
+                        items(receiptsList) { item ->
+                            Card(
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)),
+                                modifier = Modifier
+                                    .width(130.dp)
+                                    .clickable {
+                                        selectedReceiptForDetail = item
+                                    }
+                                    .testTag("receipt_item_${item.merchant}")
+                            ) {
+                                Column {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(100.dp)
+                                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        val file = java.io.File(item.filePath)
+                                        if (file.exists()) {
+                                            AsyncImage(
+                                                model = file,
+                                                contentDescription = "Receipt Image",
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                            )
+                                        } else {
+                                            Icon(
+                                                imageVector = Icons.Default.Receipt,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                                modifier = Modifier.size(28.dp)
+                                            )
+                                        }
+                                    }
+                                    Column(modifier = Modifier.padding(8.dp)) {
+                                        Text(
+                                            text = item.merchant,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.sp,
+                                            maxLines = 1,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Text(
+                                            text = if (item.amount.isNotEmpty() && item.amount != "0.00") {
+                                                "${config.currencySymbol}${item.amount}"
+                                            } else {
+                                                "Pending scan"
+                                            },
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                        Text(
+                                            text = java.text.SimpleDateFormat("MMM dd, yyyy", java.util.Locale.US).format(java.util.Date(item.timestamp)),
+                                            fontSize = 8.sp,
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (selectedReceiptForDetail != null) {
+        val currentSelected = selectedReceiptForDetail!!
+        AlertDialog(
+            onDismissRequest = { selectedReceiptForDetail = null },
+            title = {
+                Text(text = "PROOF OF PURCHASE DETAILS", fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
+            },
+            text = {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(280.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        val file = java.io.File(currentSelected.filePath)
+                        if (file.exists()) {
+                            AsyncImage(
+                                model = file,
+                                contentDescription = "Receipt Full",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = androidx.compose.ui.layout.ContentScale.Fit
+                            )
+                        } else {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.Receipt, contentDescription = null, modifier = Modifier.size(48.dp))
+                            }
+                        }
+                    }
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(text = "Merchant: ${currentSelected.merchant}", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Text(text = "Amount Extracted: ${config.currencySymbol}${currentSelected.amount}", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
+                        Text(text = "Invoice Captured On: " + java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US).format(java.util.Date(currentSelected.timestamp)), fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
+                        Text(text = "Storage Location: ${currentSelected.filePath}", fontSize = 8.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f))
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        deleteReceiptImage(context, currentSelected)
+                        receiptsList = getReceiptsList(context)
+                        selectedReceiptForDetail = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    modifier = Modifier.testTag("delete_receipt_confirm_btn")
+                ) {
+                    Icon(imageVector = Icons.Default.Delete, contentDescription = "Delete", modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Delete Receipt")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { selectedReceiptForDetail = null }) {
+                    Text("Close")
+                }
+            }
+        )
     }
 }
 

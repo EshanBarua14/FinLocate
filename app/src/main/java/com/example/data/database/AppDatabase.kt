@@ -16,9 +16,10 @@ import com.example.data.model.*
         InsightEntity::class,
         UserEntity::class,
         CountryConfigEntity::class,
-        MatchingRuleEntity::class
+        MatchingRuleEntity::class,
+        RecurringTransactionEntity::class
     ],
-    version = 5, // version bump to 5 to represent the addition of automatic matching rules
+    version = 7, // bumped version to 7 to support transaction custom tags
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -31,6 +32,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun userDao(): UserDao
     abstract fun countryConfigDao(): CountryConfigDao
     abstract fun matchingRuleDao(): MatchingRuleDao
+    abstract fun recurringTransactionDao(): RecurringTransactionDao
 
     companion object {
         @Volatile
