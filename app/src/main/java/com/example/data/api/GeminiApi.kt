@@ -161,4 +161,65 @@ object GeminiApiClient {
             "Exception: ${e.message}"
         }
     }
+
+    /**
+     * Analyzes image of receipt to extract merchant, date, amount, and category match.
+     */
+    suspend fun analyzeReceiptWithCategory(
+        bitmap: android.graphics.Bitmap,
+        categoriesJson: String,
+        historyJson: String
+    ): String = withContext(Dispatchers.IO) {
+        if (!isApiKeyConfigured()) {
+            // Simulated local OCR fallback
+            return@withContext """{"merchant": "Starbucks Coffee Retail", "date": "${java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())}", "amount": 16.85, "categoryId": 0}"""
+        }
+
+        // Convert bitmap to base64
+        val outputStream = java.io.ByteArrayOutputStream()
+        bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, outputStream)
+        val base64Data = android.util.Base64.encodeToString(outputStream.toByteArray(), android.util.Base64.NO_WRAP)
+
+        val promptText = """
+            Analyze the image of the receipt to extract:
+            1. 'merchant' (string, name of vendor)
+            2. 'date' (string, format YYYY-MM-DD or empty if not found)
+            3. 'amount' (number, total amount of charges)
+            
+            Additionally, automatically select the most appropriate category for this purchase.
+            Here is the list of available categories (ID and Name):
+            $categoriesJson
+            
+            Here is a sample of recent transaction history (Merchant to Category ID mapping):
+            $historyJson
+            
+            Match the merchant name to the most logical category from the list. Use the transaction history for context if similar merchants exist.
+            Return the result as a single JSON object with the following keys:
+            'merchant' (string)
+            'date' (string, format YYYY-MM-DD)
+            'amount' (number)
+            'categoryId' (number, the matched Category ID from the provided categories, or 0 if no logical category matches)
+            
+            Do not wrap in markdown or block comments. Return raw JSON.
+        """.trimIndent()
+
+        val request = GeminiRequest(
+            contents = listOf(
+                GeminiContent(parts = listOf(
+                    GeminiPart(text = promptText),
+                    GeminiPart(inlineData = GeminiInlineData(mimeType = "image/jpeg", data = base64Data))
+                ))
+            ),
+            generationConfig = GeminiGenerationConfig(
+                responseMimeType = "application/json"
+            )
+        )
+
+        try {
+            val response = service.generateContent(getApiKey(), request)
+            response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text ?: ""
+        } catch (e: Exception) {
+            "Exception: ${e.message}"
+        }
+    }
 }

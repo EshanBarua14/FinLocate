@@ -205,8 +205,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _notifications = MutableSharedFlow<String>(extraBufferCapacity = 64)
     val notifications = _notifications.asSharedFlow()
 
+    private fun showSystemNotification(title: String, message: String) {
+        val context = getApplication<Application>()
+        val channelId = "budget_alerts_channel"
+        val notificationId = (System.currentTimeMillis() % 100000).toInt()
+
+        try {
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                val channel = android.app.NotificationChannel(
+                    channelId,
+                    "Budget Alerts",
+                    android.app.NotificationManager.IMPORTANCE_HIGH
+                ).apply {
+                    description = "Alerts when category budget utilization exceeds 90% or limits are exceeded"
+                }
+                notificationManager.createNotificationChannel(channel)
+            }
+
+            val builder = androidx.core.app.NotificationCompat.Builder(context, channelId)
+                .setSmallIcon(android.R.drawable.ic_dialog_alert) // use standard system alert icon
+                .setContentTitle(title)
+                .setContentText(message)
+                .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
+                .setAutoCancel(true)
+
+            notificationManager.notify(notificationId, builder.build())
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
     fun postNotification(msg: String) {
         _notifications.tryEmit(msg)
+        if (msg.contains("90%") || msg.contains("Exceeded") || msg.contains("limit") || msg.contains("Warning") || msg.contains("Alert")) {
+            showSystemNotification("WealthFlow Budget Shield", msg)
+        }
     }
 
     // --- Exchange Rate Fetch Prompt Engine ---
@@ -243,6 +277,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             it.groupValues[1] to (it.groupValues[2].toDoubleOrNull() ?: 1.0)
                         }
                         if (newRates.isNotEmpty() && newRates.containsKey("USD")) {
+                            val updatedEntities = newRates.map { (cur, valRate) ->
+                                ExchangeRateEntity(currency = cur, rate = valRate, updatedAt = System.currentTimeMillis())
+                            }
+                            db.exchangeRateDao().insertAllRates(updatedEntities)
+
                             val merged = newRates.toMutableMap()
                             _userCustomExchangeRates.value.forEach { (k, v) ->
                                 merged[k] = v
@@ -418,32 +457,83 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             runRecurringScheduler()
         }
 
-        // Real-time currency background fetch from reliable api open.er-api.com
+        // Real-time currency background fetch from reliable api open.er-api.com with local SQLite caching (24-hour interval)
         viewModelScope.launch {
+            // 1. Load rates from SQLite on startup
             try {
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    val conn = java.net.URL("https://open.er-api.com/v6/latest/USD").openConnection() as java.net.HttpURLConnection
-                    conn.requestMethod = "GET"
-                    conn.connectTimeout = 5000
-                    conn.readTimeout = 5000
-                    if (conn.responseCode == 200) {
-                        val text = conn.inputStream.bufferedReader().use { it.readText() }
-                        val regex = "\"([A-Z]{3})\":\\s*([0-9\\.]+)".toRegex()
-                        val matches = regex.findAll(text)
-                        val newRates = matches.associate {
-                            it.groupValues[1] to (it.groupValues[2].toDoubleOrNull() ?: 1.0)
-                        }
-                        if (newRates.isNotEmpty() && newRates.containsKey("USD")) {
-                            val merged = newRates.toMutableMap()
-                            _userCustomExchangeRates.value.forEach { (k, v) ->
-                                merged[k] = v
+                var sqliteRates = db.exchangeRateDao().getAllRatesStatic()
+                if (sqliteRates.isEmpty()) {
+                    // Seed the default rate map into SQLite
+                    val defaults = mapOf(
+                        "USD" to 1.0,
+                        "EUR" to 0.92,
+                        "GBP" to 0.79,
+                        "JPY" to 157.5,
+                        "CAD" to 1.37,
+                        "AUD" to 1.51,
+                        "INR" to 83.5,
+                        "SGD" to 1.34,
+                        "BDT" to 117.5
+                    )
+                    val seedEntities = defaults.map { (cur, valRate) ->
+                        ExchangeRateEntity(currency = cur, rate = valRate, updatedAt = System.currentTimeMillis())
+                    }
+                    db.exchangeRateDao().insertAllRates(seedEntities)
+                    sqliteRates = seedEntities
+                }
+                
+                // Map SQLite values to state flow
+                val loadedMap = sqliteRates.associate { it.currency to it.rate }.toMutableMap()
+                _userCustomExchangeRates.value.forEach { (k, v) ->
+                    loadedMap[k] = v
+                }
+                _exchangeRates.value = loadedMap
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+
+            // 2. Background service / sync loop: Check and fetch every hour, ensuring we fetch at least once every 24 hours
+            while (true) {
+                try {
+                    val sqliteRates = db.exchangeRateDao().getAllRatesStatic()
+                    val lastUpdated = sqliteRates.maxOfOrNull { it.updatedAt } ?: 0L
+                    val now = System.currentTimeMillis()
+                    
+                    // If never fetched or more than 24 hours (86,400,000 ms) has passed
+                    if (now - lastUpdated > 24 * 3600 * 1000L || sqliteRates.isEmpty()) {
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            val conn = java.net.URL("https://open.er-api.com/v6/latest/USD").openConnection() as java.net.HttpURLConnection
+                            conn.requestMethod = "GET"
+                            conn.connectTimeout = 5000
+                            conn.readTimeout = 5000
+                            if (conn.responseCode == 200) {
+                                val text = conn.inputStream.bufferedReader().use { it.readText() }
+                                val regex = "\"([A-Z]{3})\":\\s*([0-9\\.]+)".toRegex()
+                                val matches = regex.findAll(text)
+                                val newRates = matches.associate {
+                                    it.groupValues[1] to (it.groupValues[2].toDoubleOrNull() ?: 1.0)
+                                }
+                                if (newRates.isNotEmpty() && newRates.containsKey("USD")) {
+                                    val updatedEntities = newRates.map { (cur, valRate) ->
+                                        ExchangeRateEntity(currency = cur, rate = valRate, updatedAt = System.currentTimeMillis())
+                                    }
+                                    db.exchangeRateDao().insertAllRates(updatedEntities)
+                                    
+                                    val merged = newRates.toMutableMap()
+                                    _userCustomExchangeRates.value.forEach { (k, v) ->
+                                        merged[k] = v
+                                    }
+                                    _exchangeRates.value = merged
+                                    postNotification("Exchange rates synced automatically online with local storage.")
+                                }
                             }
-                            _exchangeRates.value = merged
                         }
                     }
+                } catch (e: Exception) {
+                    // Fall back gracefully to local SQLite table offline
                 }
-            } catch (e: Exception) {
-                // Fall back gracefully to stable pre-seeded rates offline
+                // Delay for 1 hour before next periodic background check
+                kotlinx.coroutines.delay(3600_000L)
             }
         }
     }
@@ -1110,6 +1200,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val allRecurring: StateFlow<List<RecurringTransactionEntity>> = repository.allRecurring
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val allDebts: StateFlow<List<UserDebtEntity>> = repository.allDebts
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun addDebt(name: String, amount: Double, interestRate: Double, termMonths: Int, monthlyPayment: Double) {
+        viewModelScope.launch {
+            val debt = UserDebtEntity(
+                name = name,
+                amount = amount,
+                interestRate = interestRate,
+                termMonths = termMonths,
+                monthlyPayment = monthlyPayment
+            )
+            repository.insertDebt(debt)
+            postNotification("Registered user debt: '$name' of ${formatCurrency(amount)}")
+        }
+    }
+
+    fun updateDebt(debt: UserDebtEntity) {
+        viewModelScope.launch {
+            repository.updateDebt(debt)
+            postNotification("Updated user debt: '${debt.name}'")
+        }
+    }
+
+    fun deleteDebt(debt: UserDebtEntity) {
+        viewModelScope.launch {
+            repository.deleteDebt(debt)
+            postNotification("Cleared user debt: '${debt.name}'")
+        }
+    }
+
     fun runRecurringScheduler() {
         viewModelScope.launch {
             val msgs = com.example.data.service.RecurringTransactionScheduler.checkAndProcessRecurring(repository)
@@ -1563,5 +1684,188 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 onStatus("Backup failed: ${e.localizedMessage ?: "timeout error"}")
             }
         }
+    }
+
+    fun restoreSqliteDatabaseFromUri(context: android.content.Context, uri: android.net.Uri, onResult: (String) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val inputStream = context.contentResolver.openInputStream(uri)
+                val encryptedText = inputStream?.bufferedReader()?.use { it.readText() } ?: ""
+                
+                if (encryptedText.isEmpty()) {
+                    onResult("Error: Selected backup file is empty.")
+                    return@launch
+                }
+                
+                val passcode = exportPasscode.value.ifEmpty { "WealthFlowSecureKey2026" }
+                val decryptedText = com.example.data.service.CsvEncryptionUtility.decrypt(encryptedText, passcode)
+                
+                if (decryptedText.startsWith("Decryption Error")) {
+                    onResult("Decryption failed. Please verify your client passcode matches the backup key.")
+                    return@launch
+                }
+                
+                val success = repository.restoreDatabaseFromBackup(decryptedText)
+                if (success) {
+                    postNotification("Database snapshot restored and decrypted successfully from backup!")
+                    onResult("Database restored successfully!")
+                } else {
+                    onResult("Database restore failed: Corrupted JSON structure.")
+                }
+            } catch (e: Exception) {
+                onResult("Restore failed: ${e.localizedMessage ?: "unknown error"}")
+            }
+        }
+    }
+
+    fun importCsvFromUri(context: android.content.Context, uri: android.net.Uri, onResult: (String) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val inputStream = context.contentResolver.openInputStream(uri)
+                val csvLines = inputStream?.bufferedReader()?.readLines() ?: emptyList()
+                
+                if (csvLines.isEmpty()) {
+                    onResult("Error: Selected CSV file is empty.")
+                    return@launch
+                }
+                
+                val currentCats = categories.value
+                val currentAccs = accounts.value
+                
+                val importedList = mutableListOf<com.example.data.model.TransactionEntity>()
+                val validationErrors = mutableListOf<String>()
+                var parsedCount = 0
+                
+                val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
+                val sdfShort = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+                
+                csvLines.forEachIndexed { index, line ->
+                    val trimmed = line.trim()
+                    if (trimmed.isEmpty() || trimmed.startsWith("WEALTHFLOW") || trimmed.startsWith("Report Date:") || trimmed.startsWith("Active Month:") || trimmed.startsWith("---") || trimmed.startsWith("Date,Type,Category")) {
+                        // Skip header or metadata rows
+                        return@forEachIndexed
+                    }
+                    
+                    val tokens = parseCsvLine(trimmed)
+                    if (tokens.size < 5) {
+                        validationErrors.add("Line ${index + 1}: Insufficient columns (found ${tokens.size}, expected at least 5)")
+                        return@forEachIndexed
+                    }
+                    
+                    val dateStr = tokens[0].trim()
+                    val typeStr = tokens[1].trim().uppercase()
+                    val catName = tokens[2].trim()
+                    val merchantStr = tokens[3].trim()
+                    val amountStr = tokens[4].trim()
+                    val isTaxDeductible = tokens.getOrNull(5)?.trim()?.toBoolean() ?: false
+                    val isRecurring = tokens.getOrNull(6)?.trim()?.toBoolean() ?: false
+                    val notesStr = tokens.getOrNull(7)?.trim() ?: ""
+                    
+                    if (typeStr != "EXPENSE" && typeStr != "INCOME" && typeStr != "TRANSFER") {
+                        validationErrors.add("Line ${index + 1}: Invalid type '$typeStr' (must be INCOME or EXPENSE)")
+                        return@forEachIndexed
+                    }
+                    
+                    val cleanAmountStr = amountStr.replace("[^0-9.]".toRegex(), "")
+                    val amountVal = cleanAmountStr.toDoubleOrNull()
+                    if (amountVal == null || amountVal < 0.0) {
+                        validationErrors.add("Line ${index + 1}: Invalid numeric amount format '$amountStr'")
+                        return@forEachIndexed
+                    }
+                    
+                    val matchedCat = currentCats.find { it.name.equals(catName, ignoreCase = true) }
+                    if (matchedCat == null) {
+                        validationErrors.add("Line ${index + 1}: Mismatched category name '$catName' (not found in database)")
+                        return@forEachIndexed
+                    }
+                    
+                    val targetAccount = currentAccs.firstOrNull()
+                    if (targetAccount == null) {
+                        validationErrors.add("Line ${index + 1}: No active accounts found to assign transaction")
+                        return@forEachIndexed
+                    }
+                    
+                    var txTime = System.currentTimeMillis()
+                    try {
+                        val parsedDate = try { sdf.parse(dateStr) } catch (e: Exception) { sdfShort.parse(dateStr) }
+                        if (parsedDate != null) {
+                            txTime = parsedDate.time
+                        }
+                    } catch (e: Exception) {
+                        // fallback
+                    }
+                    
+                    importedList.add(
+                        com.example.data.model.TransactionEntity(
+                            amount = amountVal,
+                            type = typeStr,
+                            categoryId = matchedCat.id,
+                            accountId = targetAccount.id,
+                            merchant = merchantStr,
+                            isTaxDeductible = isTaxDeductible,
+                            isRecurring = isRecurring,
+                            notes = notesStr.ifEmpty { "Imported via CSV" },
+                            timestamp = txTime
+                        )
+                    )
+                    parsedCount++
+                }
+                
+                if (validationErrors.isNotEmpty()) {
+                    val errMsg = "Validation Errors:\n" + validationErrors.take(5).joinToString("\n") +
+                            if (validationErrors.size > 5) "\n...and ${validationErrors.size - 5} more." else ""
+                    onResult(errMsg)
+                    return@launch
+                }
+                
+                if (importedList.isEmpty()) {
+                    onResult("No records found to import.")
+                    return@launch
+                }
+                
+                importedList.forEach { tx ->
+                    repository.insertTransaction(tx)
+                }
+                
+                postNotification("Successfully batch-imported $parsedCount financial records via CSV!")
+                onResult("Success: Imported $parsedCount transactions successfully!")
+            } catch (e: Exception) {
+                onResult("Import error: ${e.localizedMessage ?: "unknown error"}")
+            }
+        }
+    }
+    
+    private fun parseCsvLine(line: String): List<String> {
+        val result = mutableListOf<String>()
+        var curVal = java.lang.StringBuilder()
+        var inQuotes = false
+        var i = 0
+        while (i < line.length) {
+            val ch = line[i]
+            if (inQuotes) {
+                if (ch == '\"') {
+                    if (i + 1 < line.length && line[i + 1] == '\"') {
+                        curVal.append('\"')
+                        i++
+                    } else {
+                        inQuotes = false
+                    }
+                } else {
+                    curVal.append(ch)
+                }
+            } else {
+                if (ch == '\"') {
+                    inQuotes = true
+                } else if (ch == ',') {
+                    result.add(curVal.toString())
+                    curVal = java.lang.StringBuilder()
+                } else {
+                    curVal.append(ch)
+                }
+            }
+            i++
+        }
+        result.add(curVal.toString())
+        return result
     }
 }

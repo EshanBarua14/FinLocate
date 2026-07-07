@@ -33,6 +33,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import java.text.SimpleDateFormat
+import androidx.compose.ui.text.style.TextAlign
 import java.util.*
 
 @Composable
@@ -652,6 +653,196 @@ fun BudgetScreen(
                             modifier = Modifier.height(28.dp).testTag("reset_milestones_btn")
                         ) {
                             Text("Reset", fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+
+            // --- SAVINGS GOAL TRACKER & ADVISOR ---
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .testTag("savings_goals_advisor_card")
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "SAVINGS GOAL TRACKER & ADVISOR",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp
+                    )
+
+                    val savingsBudgets = budgets.filter { it.savingsGoal > 0.0 }
+                    
+                    if (savingsBudgets.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.02f), RoundedCornerShape(12.dp))
+                                .padding(12.dp)
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                                Text(
+                                    text = "NO TARGET SAVINGS GOALS CONFIGURED",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "Set a target savings goal under any category budget limits below to track actual vs target savings progress.",
+                                    fontSize = 10.sp,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        }
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            savingsBudgets.forEach { budget ->
+                                val catName = categories.find { it.id == budget.categoryId }?.name ?: "Category"
+                                val actualSavings = (budget.amount - budget.spent).coerceAtLeast(0.0)
+                                val progressFraction = if (budget.savingsGoal > 0.0) (actualSavings / budget.savingsGoal).toFloat().coerceIn(0f, 1f) else 0f
+                                val progressColor = if (progressFraction >= 1.0f) FintechGreen else MaterialTheme.colorScheme.primary
+
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = catName.uppercase(),
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Text(
+                                            text = "${(progressFraction * 100).toInt()}%",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = progressColor
+                                        )
+                                    }
+                                    LinearProgressIndicator(
+                                        progress = { progressFraction },
+                                        modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
+                                        color = progressColor,
+                                        trackColor = MaterialTheme.colorScheme.surfaceVariant
+                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            text = "Saved: ${config.currencySymbol}${actualSavings.toInt()}",
+                                            fontSize = 9.sp,
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                                        )
+                                        Text(
+                                            text = "Goal: ${config.currencySymbol}${budget.savingsGoal.toInt()}",
+                                            fontSize = 9.sp,
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f))
+
+                    // AI AUTOMATIC SUGGESTIONS
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.AutoAwesome,
+                                contentDescription = null,
+                                tint = AccentGold,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "AUTOMATIC SAVINGS SUGGESTIONS",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                letterSpacing = 0.5.sp
+                            )
+                        }
+                        Text(
+                            text = "Based on monthly spending analysis, the AI recommends setting optimized savings targets for active budgets:",
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        )
+
+                        if (budgets.isEmpty()) {
+                            Text(
+                                text = "No active budgets to analyze.",
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                            )
+                        } else {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                budgets.take(2).forEach { budget ->
+                                    val catName = categories.find { it.id == budget.categoryId }?.name ?: "Category"
+                                    // Suggest savings as 15% of the total budget limit
+                                    val suggestedGoal = (budget.amount * 0.15).toInt().toDouble().coerceAtLeast(100.0)
+                                    val hasMatchingGoal = Math.abs(budget.savingsGoal - suggestedGoal) < 1.0
+
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.02f), RoundedCornerShape(8.dp))
+                                            .padding(8.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = "Suggest for $catName",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 10.sp,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                            Text(
+                                                text = "Set savings goal to ${config.currencySymbol}${suggestedGoal.toInt()} (15% limit)",
+                                                fontSize = 9.sp,
+                                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                                            )
+                                        }
+
+                                        if (hasMatchingGoal) {
+                                            Text(
+                                                text = "Adopted",
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = FintechGreen,
+                                                modifier = Modifier.padding(horizontal = 8.dp)
+                                            )
+                                        } else {
+                                            Button(
+                                                onClick = {
+                                                    viewModel.updateBudgetLimit(budget.categoryId, budget.amount, budget.isAdaptive, suggestedGoal)
+                                                },
+                                                colors = ButtonDefaults.buttonColors(
+                                                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                                ),
+                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                                modifier = Modifier.height(24.dp).testTag("adopt_savings_suggestion_${budget.id}")
+                                            ) {
+                                                Text("Adopt", fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }

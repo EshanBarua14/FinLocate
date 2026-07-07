@@ -17,9 +17,11 @@ import com.example.data.model.*
         UserEntity::class,
         CountryConfigEntity::class,
         MatchingRuleEntity::class,
-        RecurringTransactionEntity::class
+        RecurringTransactionEntity::class,
+        ExchangeRateEntity::class,
+        UserDebtEntity::class
     ],
-    version = 7, // bumped version to 7 to support transaction custom tags
+    version = 9, // bumped version to 9 to support user debts
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -33,6 +35,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun countryConfigDao(): CountryConfigDao
     abstract fun matchingRuleDao(): MatchingRuleDao
     abstract fun recurringTransactionDao(): RecurringTransactionDao
+    abstract fun exchangeRateDao(): ExchangeRateDao
+    abstract fun userDebtDao(): UserDebtDao
 
     companion object {
         @Volatile

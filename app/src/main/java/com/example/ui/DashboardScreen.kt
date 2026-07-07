@@ -80,6 +80,26 @@ fun DashboardScreen(
     val matchingRules by viewModel.matchingRules.collectAsState()
     val anomalies by viewModel.detectedAnomalies.collectAsState()
 
+    val csvPickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri: android.net.Uri? ->
+        if (uri != null) {
+            viewModel.importCsvFromUri(dashboardContext, uri) { result ->
+                android.widget.Toast.makeText(dashboardContext, result, android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    val backupPickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri: android.net.Uri? ->
+        if (uri != null) {
+            viewModel.restoreSqliteDatabaseFromUri(dashboardContext, uri) { result ->
+                android.widget.Toast.makeText(dashboardContext, result, android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
         floatingActionButton = {
@@ -143,7 +163,8 @@ fun DashboardScreen(
                         Spacer(modifier = Modifier.height(12.dp))
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
                         ) {
                             Button(
                                 onClick = { viewModel.exportReportToCsv(dashboardContext) },
@@ -151,12 +172,25 @@ fun DashboardScreen(
                                     containerColor = MaterialTheme.colorScheme.error,
                                     contentColor = MaterialTheme.colorScheme.onError
                                 ),
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                                modifier = Modifier.height(36.dp).testTag("backup_export_csv_btn")
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                modifier = Modifier.height(36.dp).weight(1f).testTag("backup_export_csv_btn")
                             ) {
-                                Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(12.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("Export CSV", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Text("CSV", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                            Button(
+                                onClick = { viewModel.exportSqliteDatabaseEncrypted(dashboardContext) { _ -> } },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.primary,
+                                    contentColor = MaterialTheme.colorScheme.onPrimary
+                                ),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                modifier = Modifier.height(36.dp).weight(1.5f).testTag("backup_export_db_btn")
+                            ) {
+                                Icon(Icons.Default.Backup, contentDescription = null, modifier = Modifier.size(12.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Secure DB Backup", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                             }
                             OutlinedButton(
                                 onClick = { viewModel.exportReportToPdf(dashboardContext) },
@@ -164,13 +198,122 @@ fun DashboardScreen(
                                 colors = ButtonDefaults.outlinedButtonColors(
                                     contentColor = MaterialTheme.colorScheme.onErrorContainer
                                 ),
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                                modifier = Modifier.height(36.dp).testTag("backup_export_pdf_btn")
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                modifier = Modifier.height(36.dp).weight(1f).testTag("backup_export_pdf_btn")
                             ) {
-                                Icon(Icons.Default.ArrowDownward, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Icon(Icons.Default.ArrowDownward, contentDescription = null, modifier = Modifier.size(12.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("Export PDF", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Text("PDF", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                             }
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- DATA PORTABILITY & SECURITY HUB ---
+        item {
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                ),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("data_portability_hub_card")
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Sync,
+                            contentDescription = "Data Security",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Column {
+                            Text(
+                                text = "DATA PORTABILITY & UTILITY HUB",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                letterSpacing = 1.sp
+                            )
+                            Text(
+                                text = "Import, export, backup, or restore your financial data securely.",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Button(
+                            onClick = { viewModel.exportReportToCsv(dashboardContext) },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary
+                            ),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                            modifier = Modifier.weight(1f).height(38.dp).testTag("hub_export_csv_btn")
+                        ) {
+                            Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Export CSV", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                        
+                        Button(
+                            onClick = { csvPickerLauncher.launch("*/*") },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.secondary,
+                                contentColor = MaterialTheme.colorScheme.onSecondary
+                            ),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                            modifier = Modifier.weight(1f).height(38.dp).testTag("hub_import_csv_btn")
+                        ) {
+                            Icon(Icons.Default.ArrowUpward, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Import CSV", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Button(
+                            onClick = { viewModel.exportSqliteDatabaseEncrypted(dashboardContext) { _ -> } },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.tertiary,
+                                contentColor = MaterialTheme.colorScheme.onTertiary
+                            ),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                            modifier = Modifier.weight(1f).height(38.dp).testTag("hub_backup_db_btn")
+                        ) {
+                            Icon(Icons.Default.Backup, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Secure Backup", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                        
+                        OutlinedButton(
+                            onClick = { backupPickerLauncher.launch("*/*") },
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = MaterialTheme.colorScheme.onSurface
+                            ),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                            modifier = Modifier.weight(1f).height(38.dp).testTag("hub_restore_db_btn")
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Restore Backup", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -1287,6 +1430,7 @@ fun DashboardScreen(
                                             D3ChartWebView(
                                                 shares = sortedCategories,
                                                 currencySymbol = countryConfig.currencySymbol,
+                                                isDark = isDark,
                                                 modifier = Modifier.fillMaxSize()
                                             )
                                         } else {
@@ -1401,6 +1545,17 @@ fun DashboardScreen(
             items(insights.take(3), key = { it.id }) { alert ->
                 AlertItemCard(alert = alert, onDismiss = { viewModel.dismissSingleInsight(alert.id) })
             }
+        }
+
+        // --- STANDALONE FINANCIAL TOOLS ---
+        item {
+            StandaloneCurrencyConverterWidget(viewModel = viewModel)
+        }
+        item {
+            UpcomingBillsCalendar(viewModel = viewModel)
+        }
+        item {
+            DebtPayoffTimelineComponent(viewModel = viewModel)
         }
     }
     }

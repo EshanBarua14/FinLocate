@@ -171,3 +171,35 @@ interface RecurringTransactionDao {
     @Delete
     suspend fun deleteRecurring(recurring: RecurringTransactionEntity)
 }
+
+@Dao
+interface ExchangeRateDao {
+    @Query("SELECT * FROM exchange_rates")
+    fun getAllRatesFlow(): Flow<List<ExchangeRateEntity>>
+
+    @Query("SELECT * FROM exchange_rates")
+    suspend fun getAllRatesStatic(): List<ExchangeRateEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertRate(rate: ExchangeRateEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAllRates(rates: List<ExchangeRateEntity>)
+}
+
+@Dao
+interface UserDebtDao {
+    @Query("SELECT * FROM user_debts ORDER BY createdAt DESC")
+    fun getAllDebtsFlow(): Flow<List<UserDebtEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertDebt(debt: UserDebtEntity): Long
+
+    @Update
+    suspend fun updateDebt(debt: UserDebtEntity)
+
+    @Delete
+    suspend fun deleteDebt(debt: UserDebtEntity)
+}
+
+

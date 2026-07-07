@@ -44,6 +44,18 @@ object BudgetNotificationService {
                         message = "⚠️ Alert: Exceeded budget for '$categoryName'! Spent $spent of $limit ($percentage%)."
                     )
                 )
+            } else if (percentage >= 90) {
+                alerts.add(
+                    BudgetAlert(
+                        categoryId = budget.categoryId,
+                        categoryName = categoryName,
+                        isExceeded = false,
+                        percentage = percentage,
+                        spent = budget.spent,
+                        limit = budget.amount,
+                        message = "🚨 High Utilization: Exceeded 90% of budget limit for '$categoryName'. Spent $spent of $limit ($percentage%)."
+                    )
+                )
             } else if (percentage >= 85) {
                 alerts.add(
                     BudgetAlert(

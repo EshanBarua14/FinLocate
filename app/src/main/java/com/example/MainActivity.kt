@@ -268,13 +268,6 @@ class MainActivity : FragmentActivity() {
                                 }
 
                                 Spacer(modifier = Modifier.height(8.dp))
-
-                                TextButton(
-                                    onClick = { isUnlocked = true },
-                                    modifier = Modifier.testTag("bypass_biometric_btn")
-                                ) {
-                                    Text("Bypass (Testing Mode)", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f))
-                                }
                             }
                         }
                     }

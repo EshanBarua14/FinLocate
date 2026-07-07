@@ -18,6 +18,7 @@ class FinanceRepository(private val db: AppDatabase) {
     private val userDao = db.userDao()
     private val countryConfigDao = db.countryConfigDao()
     private val recurringTransactionDao = db.recurringTransactionDao()
+    private val userDebtDao = db.userDebtDao()
 
     // --- Observable Flows ---
     val allAccounts: Flow<List<AccountEntity>> = accountDao.getAllAccounts()
@@ -25,6 +26,19 @@ class FinanceRepository(private val db: AppDatabase) {
     val allInsights: Flow<List<InsightEntity>> = insightDao.getAllInsights()
     val activeCountrySetting: Flow<CountrySettingEntity?> = countrySettingDao.getCountrySettingFlow()
     val allRecurring: Flow<List<RecurringTransactionEntity>> = recurringTransactionDao.getAllRecurringFlow()
+    val allDebts: Flow<List<UserDebtEntity>> = userDebtDao.getAllDebtsFlow()
+
+    suspend fun insertDebt(debt: UserDebtEntity) = withContext(Dispatchers.IO) {
+        userDebtDao.insertDebt(debt)
+    }
+
+    suspend fun updateDebt(debt: UserDebtEntity) = withContext(Dispatchers.IO) {
+        userDebtDao.updateDebt(debt)
+    }
+
+    suspend fun deleteDebt(debt: UserDebtEntity) = withContext(Dispatchers.IO) {
+        userDebtDao.deleteDebt(debt)
+    }
 
     suspend fun insertRecurring(recurring: RecurringTransactionEntity) = withContext(Dispatchers.IO) {
         recurringTransactionDao.insertRecurring(recurring)
@@ -394,6 +408,148 @@ class FinanceRepository(private val db: AppDatabase) {
 
         for (ins in seedInsights) {
             insightDao.insertInsight(ins)
+        }
+    }
+
+    suspend fun restoreDatabaseFromBackup(jsonStr: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val json = org.json.JSONObject(jsonStr)
+            
+            // Clear existing tables
+            db.clearAllTables()
+            
+            // Re-import Accounts
+            if (json.has("accounts")) {
+                val accsArr = json.getJSONArray("accounts")
+                for (i in 0 until accsArr.length()) {
+                    val accObj = accsArr.getJSONObject(i)
+                    val id = accObj.optLong("id", 0L)
+                    val name = accObj.optString("name", "")
+                    val type = accObj.optString("type", "CASH")
+                    val balance = accObj.optDouble("balance", 0.0)
+                    val currency = accObj.optString("currency", "USD")
+                    val provider = accObj.optString("provider", "Cash")
+                    val accountColorHex = accObj.optString("accountColorHex", "#10B981")
+                    val isSyncEnabled = accObj.optBoolean("isSyncEnabled", true)
+                    val createdAt = accObj.optLong("createdAt", System.currentTimeMillis())
+                    val updatedAt = accObj.optLong("updatedAt", System.currentTimeMillis())
+                    
+                    val entity = AccountEntity(
+                        id = id,
+                        name = name,
+                        type = type,
+                        balance = balance,
+                        currency = currency,
+                        provider = provider,
+                        accountColorHex = accountColorHex,
+                        isSyncEnabled = isSyncEnabled,
+                        createdAt = createdAt,
+                        updatedAt = updatedAt
+                    )
+                    accountDao.insertAccount(entity)
+                }
+            }
+            
+            // Re-import Categories
+            if (json.has("categories")) {
+                val catsArr = json.getJSONArray("categories")
+                for (i in 0 until catsArr.length()) {
+                    val catObj = catsArr.getJSONObject(i)
+                    val id = catObj.optLong("id", 0L)
+                    val name = catObj.optString("name", "")
+                    val iconName = catObj.optString("iconName", "shopping_bag")
+                    val isIncome = catObj.optBoolean("isIncome", false)
+                    val subcategories = catObj.optString("subcategories", "")
+                    
+                    val entity = CategoryEntity(
+                        id = id,
+                        name = name,
+                        iconName = iconName,
+                        isIncome = isIncome,
+                        subcategories = subcategories
+                    )
+                    categoryDao.insertCategory(entity)
+                }
+            }
+            
+            // Re-import Budgets
+            if (json.has("budgets")) {
+                val budsArr = json.getJSONArray("budgets")
+                for (i in 0 until budsArr.length()) {
+                    val budObj = budsArr.getJSONObject(i)
+                    val categoryId = budObj.optLong("categoryId", 0L)
+                    val amount = budObj.optDouble("amount", 0.0)
+                    val spent = budObj.optDouble("spent", 0.0)
+                    val month = budObj.optString("month", "")
+                    val rolloverAmount = budObj.optDouble("rolloverAmount", 0.0)
+                    val isAdaptive = budObj.optBoolean("isAdaptive", false)
+                    val savingsGoal = budObj.optDouble("savingsGoal", 0.0)
+                    val updatedAt = budObj.optLong("updatedAt", System.currentTimeMillis())
+                    
+                    val entity = BudgetEntity(
+                        categoryId = categoryId,
+                        amount = amount,
+                        spent = spent,
+                        month = month,
+                        rolloverAmount = rolloverAmount,
+                        isAdaptive = isAdaptive,
+                        savingsGoal = savingsGoal,
+                        updatedAt = updatedAt
+                    )
+                    budgetDao.insertBudget(entity)
+                }
+            }
+            
+            // Re-import Transactions
+            if (json.has("transactions")) {
+                val txsArr = json.getJSONArray("transactions")
+                for (i in 0 until txsArr.length()) {
+                    val txObj = txsArr.getJSONObject(i)
+                    val id = txObj.optLong("id", 0L)
+                    val amount = txObj.optDouble("amount", 0.0)
+                    val type = txObj.optString("type", "EXPENSE")
+                    val categoryId = txObj.optLong("categoryId", 0L)
+                    val accountId = txObj.optLong("accountId", 0L)
+                    val toAccountId = txObj.optLong("toAccountId", -1L)
+                    val timestamp = txObj.optLong("timestamp", System.currentTimeMillis())
+                    val merchant = txObj.optString("merchant", "")
+                    val isTaxDeductible = txObj.optBoolean("isTaxDeductible", false)
+                    val taxRate = txObj.optDouble("taxRate", 0.0)
+                    val notes = txObj.optString("notes", "")
+                    val isRecurring = txObj.optBoolean("isRecurring", false)
+                    val recurrenceInterval = txObj.optString("recurrenceInterval", "NONE")
+                    val splitCount = txObj.optInt("splitCount", 1)
+                    val userEmail = txObj.optString("userEmail", "")
+                    val tags = txObj.optString("tags", "")
+                    val createdAt = txObj.optLong("createdAt", System.currentTimeMillis())
+                    
+                    val entity = TransactionEntity(
+                        id = id,
+                        amount = amount,
+                        type = type,
+                        categoryId = categoryId,
+                        accountId = accountId,
+                        toAccountId = toAccountId,
+                        timestamp = timestamp,
+                        merchant = merchant,
+                        isTaxDeductible = isTaxDeductible,
+                        taxRate = taxRate,
+                        notes = notes,
+                        isRecurring = isRecurring,
+                        recurrenceInterval = recurrenceInterval,
+                        splitCount = splitCount,
+                        userEmail = userEmail,
+                        tags = tags,
+                        createdAt = createdAt
+                    )
+                    transactionDao.insertTransaction(entity)
+                }
+            }
+            
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
         }
     }
 }

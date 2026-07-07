@@ -705,8 +705,12 @@ fun DetailedFormLayout(
                 isScanningReceipt = true
                 scope.launch {
                     try {
-                        val responseJson = com.example.data.api.GeminiApiClient.analyzeReceipt(bitmap)
-                        // Parse JSON: format is {"merchant": "Starbucks", "date": "2026-06-19", "amount": 12.50}
+                        val categoriesJson = categories.joinToString(prefix = "[", postfix = "]") { "{\"id\": ${it.id}, \"name\": \"${it.name.replace("\"", "\\\"")}\"}" }
+                        val recentTxs = viewModel.allTransactions.value.take(20)
+                        val historyJson = recentTxs.joinToString(prefix = "[", postfix = "]") { "{\"merchant\": \"${it.merchant.replace("\"", "\\\"")}\", \"categoryId\": ${it.categoryId}}" }
+                        
+                        val responseJson = com.example.data.api.GeminiApiClient.analyzeReceiptWithCategory(bitmap, categoriesJson, historyJson)
+                        // Parse JSON: format is {"merchant": "Starbucks", "date": "2026-06-19", "amount": 12.50, "categoryId": 3}
                         if (responseJson.isNotEmpty() && !responseJson.startsWith("Exception:")) {
                             val cleanJson = responseJson.trim()
                                 .replace("```json", "")
@@ -720,6 +724,7 @@ fun DetailedFormLayout(
                                 val extractedMerchant = parsedMap["merchant"]?.toString() ?: ""
                                 val extractedDateStr = parsedMap["date"]?.toString() ?: ""
                                 val extractedAmountStr = parsedMap["amount"]?.toString() ?: ""
+                                val extractedCategoryId = (parsedMap["categoryId"]?.toString()?.toDoubleOrNull()?.toLong()) ?: 0L
                                 
                                 if (extractedMerchant.isNotEmpty()) {
                                     onMerchantChange(extractedMerchant)
@@ -727,19 +732,54 @@ fun DetailedFormLayout(
                                 if (extractedAmountStr.isNotEmpty()) {
                                     onFormAmountChange(extractedAmountStr)
                                 }
+                                
+                                var parsedTimestamp = System.currentTimeMillis()
                                 if (extractedDateStr.isNotEmpty()) {
-                                    val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-                                    val parsedDate = sdf.parse(extractedDateStr)
-                                    if (parsedDate != null) {
-                                        onDateChange(parsedDate.time)
+                                    try {
+                                        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+                                        val parsedDate = sdf.parse(extractedDateStr)
+                                        if (parsedDate != null) {
+                                            parsedTimestamp = parsedDate.time
+                                            onDateChange(parsedTimestamp)
+                                        }
+                                    } catch (e: Exception) {
+                                        e.printStackTrace()
                                     }
                                 }
+
+                                // Save directly to local Room SQLite as a pending transaction
+                                try {
+                                    val finalAmount = extractedAmountStr.toDoubleOrNull() ?: 0.0
+                                    val finalCatId = if (extractedCategoryId != 0L && categories.any { it.id == extractedCategoryId }) {
+                                        extractedCategoryId
+                                    } else if (selectedCategoryId != 0L) {
+                                        selectedCategoryId
+                                    } else {
+                                        (categories.find { it.name.contains("Shopping", true) || it.name.contains("Miscellaneous", true) }?.id ?: categories.firstOrNull()?.id ?: 1L)
+                                    }
+                                    val finalAccId = if (selectedAccountId != 0L) selectedAccountId else (accounts.firstOrNull()?.id ?: 1L)
+                                    
+                                    onCategoryIdChange(finalCatId)
+                                    
+                                    viewModel.addTransaction(
+                                        amount = finalAmount,
+                                        type = "EXPENSE",
+                                        categoryId = finalCatId,
+                                        accountId = finalAccId,
+                                        merchant = extractedMerchant.ifEmpty { "Scanned Merchant" },
+                                        notes = "[Pending Review] - AI Camera Receipt Scan",
+                                        customTimestamp = parsedTimestamp
+                                    )
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                }
+
                                 try {
                                     saveReceiptImage(context, bitmap, extractedMerchant.ifEmpty { "Scanned Receipt" }, extractedAmountStr.ifEmpty { "0.00" })
                                 } catch (err: Exception) {
                                     err.printStackTrace()
                                 }
-                                Toast.makeText(context, "Receipt Scanned & Saved to Gallery!", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Receipt Scanned, Pending Transaction Created & Saved to Gallery!", Toast.LENGTH_SHORT).show()
                             }
                         } else {
                             try {

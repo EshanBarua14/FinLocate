@@ -253,3 +253,25 @@ data class RecurringTransactionEntity(
     val userEmail: String = "",
     val createdAt: Long = System.currentTimeMillis()
 )
+
+@Entity(tableName = "exchange_rates")
+data class ExchangeRateEntity(
+    @PrimaryKey val currency: String, // e.g. "EUR", "BDT", "USD"
+    val rate: Double, // rate against USD base currency
+    val updatedAt: Long = System.currentTimeMillis()
+)
+
+@Entity(tableName = "user_debts")
+data class UserDebtEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    val amount: Double, // current loan/debt principal
+    val interestRate: Double, // annual interest rate in percent, e.g. 5.5 for 5.5%
+    val termMonths: Int, // loan term in months, e.g. 36
+    val monthlyPayment: Double = 0.0, // monthly payment
+    val startDate: Long = System.currentTimeMillis(),
+    val userEmail: String = "",
+    val createdAt: Long = System.currentTimeMillis()
+)
+
+
