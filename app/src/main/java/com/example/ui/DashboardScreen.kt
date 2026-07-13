@@ -11,6 +11,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -47,6 +49,7 @@ import kotlin.math.min
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreen(
     viewModel: MainViewModel,
@@ -79,6 +82,8 @@ fun DashboardScreen(
     val netWorthSummary by viewModel.netWorthSummary.collectAsState()
     val matchingRules by viewModel.matchingRules.collectAsState()
     val anomalies by viewModel.detectedAnomalies.collectAsState()
+    val budgets by viewModel.activeBudgets.collectAsState()
+    val budgetAlerts by viewModel.budgetAlerts.collectAsState()
 
     val csvPickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
@@ -102,6 +107,34 @@ fun DashboardScreen(
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
+        topBar = {
+            CenterAlignedTopAppBar(
+                title = {
+                    Text(
+                        text = "WEALTHFLOW",
+                        fontWeight = FontWeight.Black,
+                        style = MaterialTheme.typography.titleLarge,
+                        letterSpacing = 1.5.sp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                },
+                actions = {
+                    IconButton(
+                        onClick = { viewModel.setDarkTheme(!isDark) },
+                        modifier = Modifier.testTag("dashboard_theme_toggle_btn")
+                    ) {
+                        Icon(
+                            imageVector = if (isDark) Icons.Default.LightMode else Icons.Default.DarkMode,
+                            contentDescription = "Toggle Theme",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background
+                )
+            )
+        },
         floatingActionButton = {
             FloatingActionButton(
                 onClick = { showQuickAddDialog = true },
@@ -316,6 +349,346 @@ fun DashboardScreen(
                             Text("Restore Backup", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         }
                     }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    var showCloudSettings by remember { mutableStateOf(false) }
+                    val remoteSyncUrl by viewModel.remoteSyncUrl.collectAsState()
+                    val exportPasscode by viewModel.exportPasscode.collectAsState()
+                    var syncUrlInput by remember(remoteSyncUrl) { mutableStateOf(remoteSyncUrl) }
+                    var passcodeInput by remember(exportPasscode) { mutableStateOf(exportPasscode) }
+                    var cloudSyncStatus by remember { mutableStateOf("") }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showCloudSettings = !showCloudSettings }
+                            .padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Icon(
+                                imageVector = Icons.Default.CloudQueue,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = "PRODUCTION CLOUD VAULT SYNC",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.secondary,
+                                letterSpacing = 0.5.sp
+                            )
+                        }
+                        Icon(
+                            imageVector = if (showCloudSettings) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+
+                    if (showCloudSettings) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        
+                        OutlinedTextField(
+                            value = syncUrlInput,
+                            onValueChange = {
+                                syncUrlInput = it
+                                viewModel.setRemoteSyncUrl(it)
+                            },
+                            label = { Text("Remote Sync Server URL", fontSize = 11.sp) },
+                            placeholder = { Text("e.g. http://10.0.2.2:5000", fontSize = 11.sp) },
+                            singleLine = true,
+                            leadingIcon = { Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("hub_cloud_url_input"),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = MaterialTheme.colorScheme.secondary,
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+                            )
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // --- Real-time Authenticated REST Sync Section ---
+                        val isLoggedIn by viewModel.isLoggedIn.collectAsState()
+                        val usernameState by viewModel.username.collectAsState()
+                        val userEmailState by viewModel.userEmail.collectAsState()
+
+                        var isRegisterMode by remember { mutableStateOf(false) }
+                        var authUsernameInput by remember { mutableStateOf("") }
+                        var authEmailInput by remember { mutableStateOf("") }
+                        var authPasswordInput by remember { mutableStateOf("") }
+                        var authError by remember { mutableStateOf("") }
+                        var authLoading by remember { mutableStateOf(false) }
+
+                        if (!isLoggedIn) {
+                            Card(
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                                ),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)),
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Text(
+                                        text = if (isRegisterMode) "Create Secured Cloud Account" else "Sign In to Cloud Vault",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    if (isRegisterMode) {
+                                        OutlinedTextField(
+                                            value = authUsernameInput,
+                                            onValueChange = { authUsernameInput = it },
+                                            label = { Text("Username", fontSize = 11.sp) },
+                                            singleLine = true,
+                                            modifier = Modifier.fillMaxWidth().testTag("auth_username_field"),
+                                            colors = OutlinedTextFieldDefaults.colors(
+                                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+                                            )
+                                        )
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                    }
+
+                                    OutlinedTextField(
+                                        value = authEmailInput,
+                                        onValueChange = { authEmailInput = it },
+                                        label = { Text("Email Address", fontSize = 11.sp) },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth().testTag("auth_email_field"),
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                            unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+                                        )
+                                    )
+                                    Spacer(modifier = Modifier.height(6.dp))
+
+                                    OutlinedTextField(
+                                        value = authPasswordInput,
+                                        onValueChange = { authPasswordInput = it },
+                                        label = { Text("Password", fontSize = 11.sp) },
+                                        singleLine = true,
+                                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                                        modifier = Modifier.fillMaxWidth().testTag("auth_password_field"),
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                            unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+                                        )
+                                    )
+
+                                    if (authError.isNotEmpty()) {
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text(authError, color = MaterialTheme.colorScheme.error, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
+
+                                    Spacer(modifier = Modifier.height(10.dp))
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        TextButton(onClick = { 
+                                            isRegisterMode = !isRegisterMode
+                                            authError = ""
+                                        }) {
+                                            Text(
+                                                text = if (isRegisterMode) "Already have an account? Sign In" else "New here? Create Account",
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+
+                                        Button(
+                                            onClick = {
+                                                if (authEmailInput.isEmpty() || authPasswordInput.isEmpty() || (isRegisterMode && authUsernameInput.isEmpty())) {
+                                                    authError = "Please fill in all fields"
+                                                    return@Button
+                                                }
+                                                authLoading = true
+                                                authError = ""
+                                                if (isRegisterMode) {
+                                                    viewModel.registerUser(authUsernameInput, authPasswordInput, authEmailInput) { err ->
+                                                        authLoading = false
+                                                        if (err != null) authError = err else {
+                                                            authUsernameInput = ""
+                                                            authEmailInput = ""
+                                                            authPasswordInput = ""
+                                                        }
+                                                    }
+                                                } else {
+                                                    viewModel.loginUser(authEmailInput, authPasswordInput) { err ->
+                                                        authLoading = false
+                                                        if (err != null) authError = err else {
+                                                            authEmailInput = ""
+                                                            authPasswordInput = ""
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                            modifier = Modifier.height(34.dp).testTag("auth_submit_btn")
+                                        ) {
+                                            if (authLoading) {
+                                                CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 1.dp, color = MaterialTheme.colorScheme.onPrimary)
+                                            } else {
+                                                Text(if (isRegisterMode) "Register" else "Login", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            // --- LOGGED IN SECURED SYNC DASHBOARD ---
+                            Card(
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f)
+                                ),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column {
+                                            Text("Secured Cloud Vault", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                                            Text("User: ${usernameState ?: ""} (${userEmailState ?: ""})", fontSize = 10.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f))
+                                        }
+                                        TextButton(onClick = { viewModel.logoutUser() }) {
+                                            Text("Sign Out", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(10.dp))
+
+                                    Button(
+                                        onClick = {
+                                            viewModel.syncExpensesAndAccountsWithCloud { status ->
+                                                cloudSyncStatus = status
+                                            }
+                                        },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = MaterialTheme.colorScheme.primary,
+                                            contentColor = MaterialTheme.colorScheme.onPrimary
+                                        ),
+                                        modifier = Modifier.fillMaxWidth().height(38.dp).testTag("rest_sync_now_btn")
+                                    ) {
+                                        Icon(Icons.Default.CloudQueue, contentDescription = null, modifier = Modifier.size(14.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Sync Local Database with Cloud REST API", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+                        Text(
+                            "ALTERNATIVE: ZERO-KNOWLEDGE PASSCODE BACKUP",
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            letterSpacing = 0.5.sp
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        OutlinedTextField(
+                            value = passcodeInput,
+                            onValueChange = {
+                                passcodeInput = it
+                                viewModel.setExportPasscode(it)
+                            },
+                            label = { Text("Client Cryptographic Passphrase", fontSize = 11.sp) },
+                            singleLine = true,
+                            leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("hub_cloud_passcode_input"),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = MaterialTheme.colorScheme.secondary,
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+                            )
+                        )
+                        
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Button(
+                                onClick = {
+                                    viewModel.uploadBackupToCloud(dashboardContext) { status ->
+                                        cloudSyncStatus = status
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                ),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                                modifier = Modifier.weight(1f).height(38.dp).testTag("hub_cloud_upload_btn")
+                            ) {
+                                Icon(Icons.Default.CloudUpload, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Cloud Upload", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                            
+                            Button(
+                                onClick = {
+                                    viewModel.downloadBackupFromCloud(dashboardContext) { status ->
+                                        cloudSyncStatus = status
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                ),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                                modifier = Modifier.weight(1f).height(38.dp).testTag("hub_cloud_download_btn")
+                            ) {
+                                Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Cloud Download", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        if (cloudSyncStatus.isNotEmpty() && cloudSyncStatus != "SUCCESS") {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Card(
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
+                                ),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 1.5.dp, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                                    Text(
+                                        text = cloudSyncStatus,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -503,6 +876,200 @@ fun DashboardScreen(
                                     color = ExpenseRose
                                 )
                             }
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- ACTIVE SPENDING ALERTS ---
+        if (budgetAlerts.isNotEmpty()) {
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.9f)
+                    ),
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(1.2.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("dashboard_budget_alerts_card")
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Warning,
+                                contentDescription = "Active Alerts",
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Text(
+                                text = "ACTIVE BUDGET ALERTS",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                letterSpacing = 1.sp
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        budgetAlerts.forEach { alert ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.Top
+                            ) {
+                                Text(text = "🚨", fontSize = 14.sp)
+                                Column {
+                                    Text(
+                                        text = alert.message,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onErrorContainer
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- MONTHLY PERFORMANCE HEADER CARDS ---
+        item {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "MONTHLY PERFORMANCE CARDS",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp,
+                    modifier = Modifier.padding(horizontal = 4.dp)
+                )
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    // 1. Total Expenses Card
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f)
+                        ),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.15f)),
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier
+                            .width(145.dp)
+                            .testTag("summary_card_total_expenses")
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.TrendingDown,
+                                contentDescription = "Total Expenses",
+                                tint = ExpenseRose,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Text(
+                                text = "Total Expenses",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f)
+                            )
+                            Text(
+                                text = viewModel.formatCurrency(outflow),
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = ExpenseRose
+                            )
+                        }
+                    }
+
+                    // 2. Current Balance Card
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                        ),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier
+                            .width(145.dp)
+                            .testTag("summary_card_current_balance")
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AccountBalanceWallet,
+                                contentDescription = "Current Balance",
+                                tint = FintechGreen,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Text(
+                                text = "Current Balance",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                            )
+                            Text(
+                                text = viewModel.formatCurrency(totalBalance),
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = FintechGreen
+                            )
+                        }
+                    }
+
+                    // 3. Remaining Budget Card
+                    val totalBudgeted = budgets.sumOf { it.amount }
+                    val remainingBudget = totalBudgeted - outflow
+                    val budgetColor = if (remainingBudget >= 0) FintechGreen else ExpenseRose
+                    val budgetBg = if (remainingBudget >= 0) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
+                    
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = budgetBg
+                        ),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.15f)),
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier
+                            .width(145.dp)
+                            .testTag("summary_card_remaining_budget")
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PieChart,
+                                contentDescription = "Remaining Budget",
+                                tint = MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Text(
+                                text = "Remaining Budget",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = viewModel.formatCurrency(remainingBudget),
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = budgetColor
+                            )
                         }
                     }
                 }
@@ -2336,265 +2903,231 @@ fun RechartsTrendWebView(
         <html>
         <head>
             <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+            <script src="https://cdn.tailwindcss.com"></script>
+            <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+            <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+            <script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js" crossorigin></script>
+            <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
             <style>
                 body {
                     background-color: ${if (isDark) "#141B2D" else "#FFFFFF"};
                     color: ${if (isDark) "#F8FAFC" else "#1F2937"};
-                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                    font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
                     margin: 0;
-                    padding: 8px 12px 16px 12px;
+                    padding: 8px 12px 24px 12px;
                     box-sizing: border-box;
                     width: 100vw;
                     height: 100vh;
                     overflow-x: hidden;
                     overflow-y: auto;
                 }
-                .chart-section {
-                    margin-bottom: 24px;
-                    width: 100%;
+                ::-webkit-scrollbar {
+                    width: 4px;
                 }
-                h3 {
-                    font-size: 11px;
-                    font-weight: 800;
-                    color: ${if (isDark) "#94A3B8" else "#4B5563"};
-                    letter-spacing: 1px;
-                    margin-top: 0;
-                    margin-bottom: 12px;
-                    text-transform: uppercase;
+                ::-webkit-scrollbar-track {
+                    background: transparent;
                 }
-                .canvas-holder {
-                    position: relative;
-                    width: 100%;
-                    height: 155px;
+                ::-webkit-scrollbar-thumb {
+                    background: ${if (isDark) "#334155" else "#CBD5E1"};
+                    border-radius: 2px;
                 }
             </style>
-            <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
         </head>
         <body>
-            <div class="chart-section">
-                <h3>📈 CUMULATIVE MONTH SPENDING TREND</h3>
-                <div class="canvas-holder">
-                    <canvas id="trendChart"></canvas>
-                </div>
-            </div>
-            
-            <div class="chart-section">
-                <h3>📊 CATEGORIES VS BUDGET LIMITS</h3>
-                <div class="canvas-holder" style="height: 165px;">
-                    <canvas id="budgetChart"></canvas>
-                </div>
-            </div>
+            <div id="root"></div>
 
-            <div class="chart-section">
-                <h3>📅 MONTH-TO-MONTH SPENDING TREND</h3>
-                <div class="canvas-holder" style="height: 165px;">
-                    <canvas id="monthlyTrendChart"></canvas>
-                </div>
-            </div>
+            <script type="text/babel">
+                const { 
+                    ResponsiveContainer, AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
+                    XAxis, YAxis, CartesianGrid, Tooltip, Legend 
+                } = Recharts;
 
-            <div class="chart-section" style="margin-bottom: 0;">
-                <h3>🍰 CATEGORY EXPENSE BREAKDOWN</h3>
-                <div class="canvas-holder" style="height: 180px;">
-                    <canvas id="categoryPieChart"></canvas>
-                </div>
-            </div>
- 
-            <script>
-                // --- TREND LINE DATA ---
-                const trendRaw = [ $trendDataJson ];
-                const trendLabels = trendRaw.map(d => "Day " + d.day);
-                const trendValues = trendRaw.map(d => d.Spent);
- 
-                // --- BUDGETS BAR DATA ---
-                const budgetRaw = [ $budgetBarJson ];
-                const budgetLabels = budgetRaw.map(d => d.category);
-                const budgetLimits = budgetRaw.map(d => d.Limit);
-                const budgetSpents = budgetRaw.map(d => d.Spent);
+                const trendData = [ $trendDataJson ];
+                const budgetData = [ $budgetBarJson ];
+                const monthlyData = [ $monthToMonthDataJson ];
+                const isDark = ${isDark};
+                const currencySymbol = "$currencySymbol";
 
-                // --- MONTH-TO-MONTH TREND DATA ---
-                const monthlyRaw = [ $monthToMonthDataJson ];
-                const monthlyLabels = monthlyRaw.map(d => d.month);
-                const monthlyValues = monthlyRaw.map(d => d.Spent);
- 
-                // Set up Line Chart
-                const trendCtx = document.getElementById('trendChart').getContext('2d');
-                
-                // Create gradient
-                const trendGrad = trendCtx.createLinearGradient(0, 0, 0, 150);
-                trendGrad.addColorStop(0, '${if (isDark) "rgba(16, 185, 129, 0.4)" else "rgba(5, 150, 105, 0.3)"}');
-                trendGrad.addColorStop(1, 'rgba(16, 185, 129, 0.0)');
- 
-                new Chart(trendCtx, {
-                    type: 'line',
-                    data: {
-                        labels: trendLabels,
-                        datasets: [{
-                            label: 'Total Spent',
-                            data: trendValues,
-                            borderColor: '${if (isDark) "#10B981" else "#059669"}',
-                            borderWidth: 2,
-                            backgroundColor: trendGrad,
-                            fill: true,
-                            tension: 0.4,
-                            pointRadius: trendValues.length > 15 ? 0 : 3,
-                            pointBackgroundColor: '${if (isDark) "#10B981" else "#059669"}'
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: {
-                            legend: { display: false }
-                        },
-                        scales: {
-                            x: {
-                                grid: { color: '${if (isDark) "#1E293B" else "#E2E8F0"}' },
-                                ticks: { color: '${if (isDark) "#94A3B8" else "#4B5563"}', font: { size: 9 } }
-                            },
-                            y: {
-                                grid: { color: '${if (isDark) "#1E293B" else "#E2E8F0"}' },
-                                ticks: {
-                                    color: '${if (isDark) "#94A3B8" else "#4B5563"}',
-                                    font: { size: 9 },
-                                    callback: function(value) { return '$currencySymbol' + value; }
-                                }
-                            }
-                        }
-                    }
-                });
- 
-                // Set up Budget Bar Chart
-                const budgetCtx = document.getElementById('budgetChart').getContext('2d');
-                
-                const backgroundColors = budgetSpents.map((spent, idx) => {
-                    const limit = budgetLimits[idx];
-                    return spent > limit ? '#F43F5E' : '${if (isDark) "#10B981" else "#059669"}';
-                });
- 
-                new Chart(budgetCtx, {
-                    type: 'bar',
-                    data: {
-                        labels: budgetLabels,
-                        datasets: [
-                            {
-                                label: 'Budget Limit',
-                                data: budgetLimits,
-                                backgroundColor: '${if (isDark) "#3B82F6" else "#3B82F6"}',
-                                borderRadius: 4,
-                                barPercentage: 0.6,
-                                categoryPercentage: 0.8
-                            },
-                            {
-                                label: 'Actual Spent',
-                                data: budgetSpents,
-                                backgroundColor: backgroundColors,
-                                borderRadius: 4,
-                                barPercentage: 0.6,
-                                categoryPercentage: 0.8
-                            }
-                        ]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: {
-                            legend: {
-                                labels: { color: '${if (isDark) "#F8FAFC" else "#1F2937"}', font: { size: 10 } }
-                            }
-                        },
-                        scales: {
-                            x: {
-                                grid: { color: '${if (isDark) "#1E293B" else "#E2E8F0"}' },
-                                ticks: { color: '${if (isDark) "#94A3B8" else "#4B5563"}', font: { size: 9 } }
-                            },
-                            y: {
-                                grid: { color: '${if (isDark) "#1E293B" else "#E2E8F0"}' },
-                                ticks: {
-                                    color: '${if (isDark) "#94A3B8" else "#4B5563"}',
-                                    font: { size: 9 },
-                                    callback: function(value) { return '$currencySymbol' + value; }
-                                }
-                            }
-                        }
-                    }
-                });
+                const nonZeroBudgets = budgetData.filter(b => b.Spent > 0);
+                const pieData = nonZeroBudgets.length > 0 ? nonZeroBudgets : [{ category: "No Expenses", Spent: 0.01 }];
 
-                // Set up Month-to-Month Spending Trend Chart
-                const monthlyCtx = document.getElementById('monthlyTrendChart').getContext('2d');
-                new Chart(monthlyCtx, {
-                    type: 'bar',
-                    data: {
-                        labels: monthlyLabels,
-                        datasets: [{
-                            label: 'Monthly Spending',
-                            data: monthlyValues,
-                            backgroundColor: '${if (isDark) "#FBBF24" else "#D97706"}',
-                            borderRadius: 4,
-                            barPercentage: 0.5
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: {
-                            legend: { display: false }
-                        },
-                        scales: {
-                            x: {
-                                grid: { color: '${if (isDark) "#1E293B" else "#E2E8F0"}' },
-                                ticks: { color: '${if (isDark) "#94A3B8" else "#4B5563"}', font: { size: 9 } }
-                            },
-                            y: {
-                                grid: { color: '${if (isDark) "#1E293B" else "#E2E8F0"}' },
-                                ticks: {
-                                    color: '${if (isDark) "#94A3B8" else "#4B5563"}',
-                                    font: { size: 9 },
-                                    callback: function(value) { return '$currencySymbol' + value; }
-                                }
-                            }
-                        }
+                const COLORS = ['#10B981', '#3B82F6', '#FBBF24', '#8B5CF6', '#EC4899', '#EF4444', '#14B8A6', '#F97316', '#22C55E', '#A855F7'];
+
+                const CustomTooltip = ({ active, payload, label }) => {
+                    if (active && payload && payload.length) {
+                        return (
+                            <div className={"p-2.5 rounded-lg border text-xs shadow-xl font-semibold " + (
+                                isDark ? "bg-slate-900 border-slate-800 text-slate-100" : "bg-white border-slate-200 text-slate-800"
+                            )}>
+                                <p className="font-bold mb-1 opacity-75">{label}</p>
+                                {payload.map((p, idx) => (
+                                    <p key={idx} style={{ color: p.color || p.fill }}>
+                                        {p.name}: {currencySymbol}{Number(p.value).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                                    </p>
+                                ))}
+                            </div>
+                        );
                     }
-                });
- 
-                // Set up Breakdown pie chart of only non-zero spent categories
-                const pieCtx = document.getElementById('categoryPieChart').getContext('2d');
-                const nonZeroBudgets = budgetRaw.filter(d => d.Spent > 0);
-                const pieLabels = nonZeroBudgets.length > 0 ? nonZeroBudgets.map(d => d.category) : ["No Expenses"];
-                const pieSpents = nonZeroBudgets.length > 0 ? nonZeroBudgets.map(d => d.Spent) : [0.01];
-                const piePalette = ['#10B981', '#3B82F6', '#FBBF24', '#8B5CF6', '#EC4899', '#EF4444', '#14B8A6', '#F97316', '#22C55E', '#A855F7'];
- 
-                new Chart(pieCtx, {
-                    type: 'doughnut',
-                    data: {
-                        labels: pieLabels,
-                        datasets: [{
-                            data: pieSpents,
-                            backgroundColor: nonZeroBudgets.length > 0 ? piePalette : ['rgba(120, 120, 120, 0.15)'],
-                            borderColor: '${if (isDark) "#141B2D" else "#FFFFFF"}',
-                            borderWidth: 1.5
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: {
-                            legend: {
-                                position: 'right',
-                                labels: {
-                                    color: '${if (isDark) "#94A3B8" else "#4B5563"}',
-                                    font: { size: 9 }
-                                }
-                            }
-                        }
-                    }
-                });
+                    return null;
+                };
+
+                function App() {
+                    return (
+                        <div className="flex flex-col gap-6 w-full pb-8">
+                            {/* 1. Area Spend Trend */}
+                            <div className={"p-4 rounded-xl border " + (isDark ? "bg-slate-900/60 border-slate-800/80" : "bg-slate-50 border-slate-200")}>
+                                <div className="flex justify-between items-center mb-3">
+                                    <h3 className="text-[11px] font-bold tracking-wider text-emerald-500 uppercase flex items-center gap-1.5">
+                                        📈 CUMULATIVE MONTH SPENDING TREND (RECHARTS)
+                                    </h3>
+                                    <span className="text-[9px] opacity-60">Real-time Cloud Sync</span>
+                                </div>
+                                <div className="h-[160px] w-full">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <AreaChart data={trendData} margin={{ top: 5, right: 5, left: -25, bottom: 0 }}>
+                                            <defs>
+                                                <linearGradient id="colorSpent" x1="0" y1="0" x2="0" y2="1">
+                                                    <stop offset="5%" stopColor="#10B981" stopOpacity={isDark ? 0.4 : 0.25}/>
+                                                    <stop offset="95%" stopColor="#10B981" stopOpacity={0}/>
+                                                </linearGradient>
+                                            </defs>
+                                            <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#1E293B" : "#E2E8F0"} vertical={false} />
+                                            <XAxis 
+                                                dataKey="day" 
+                                                tickFormatter={(day) => "Day " + day} 
+                                                tick={{ fill: isDark ? "#94A3B8" : "#4B5563", fontSize: 9 }}
+                                                stroke={isDark ? "#334155" : "#CBD5E1"}
+                                            />
+                                            <YAxis 
+                                                tickFormatter={(val) => currencySymbol + val} 
+                                                tick={{ fill: isDark ? "#94A3B8" : "#4B5563", fontSize: 9 }}
+                                                stroke={isDark ? "#334155" : "#CBD5E1"}
+                                            />
+                                            <Tooltip content={<CustomTooltip />} />
+                                            <Area 
+                                                type="monotone" 
+                                                dataKey="Spent" 
+                                                name="Total Spent" 
+                                                stroke="#10B981" 
+                                                strokeWidth={2} 
+                                                fillOpacity={1} 
+                                                fill="url(#colorSpent)" 
+                                            />
+                                        </AreaChart>
+                                    </ResponsiveContainer>
+                                </div>
+                            </div>
+
+                            {/* 2. Budget limits bar */}
+                            <div className={"p-4 rounded-xl border " + (isDark ? "bg-slate-900/60 border-slate-800/80" : "bg-slate-50 border-slate-200")}>
+                                <h3 className="text-[11px] font-bold tracking-wider text-blue-500 uppercase mb-3">
+                                    📊 CATEGORIES VS BUDGET LIMITS (RECHARTS)
+                                </h3>
+                                <div className="h-[180px] w-full">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <BarChart data={budgetData} margin={{ top: 5, right: 5, left: -25, bottom: 0 }}>
+                                            <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#1E293B" : "#E2E8F0"} vertical={false} />
+                                            <XAxis 
+                                                dataKey="category" 
+                                                tick={{ fill: isDark ? "#94A3B8" : "#4B5563", fontSize: 9 }}
+                                                stroke={isDark ? "#334155" : "#CBD5E1"}
+                                            />
+                                            <YAxis 
+                                                tickFormatter={(val) => currencySymbol + val} 
+                                                tick={{ fill: isDark ? "#94A3B8" : "#4B5563", fontSize: 9 }}
+                                                stroke={isDark ? "#334155" : "#CBD5E1"}
+                                            />
+                                            <Tooltip content={<CustomTooltip />} />
+                                            <Legend wrapperStyle={{ fontSize: '9px', paddingTop: '8px' }} />
+                                            <Bar dataKey="Limit" name="Budget Limit" fill="#3B82F6" radius={[4, 4, 0, 0]} />
+                                            <Bar dataKey="Spent" name="Actual Spent" radius={[4, 4, 0, 0]}>
+                                                {budgetData.map((entry, index) => {
+                                                    const isOver = entry.Spent > entry.Limit;
+                                                    return <Cell key={"cell-" + index} fill={isOver ? '#F43F5E' : '#10B981'} />;
+                                                })}
+                                            </Bar>
+                                        </BarChart>
+                                    </ResponsiveContainer>
+                                </div>
+                            </div>
+
+                            {/* 3. Month to month spending */}
+                            <div className={"p-4 rounded-xl border " + (isDark ? "bg-slate-900/60 border-slate-800/80" : "bg-slate-50 border-slate-200")}>
+                                <h3 className="text-[11px] font-bold tracking-wider text-amber-500 uppercase mb-3">
+                                    📅 MONTH-TO-MONTH SPENDING TREND
+                                </h3>
+                                <div className="h-[180px] w-full">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <BarChart data={monthlyData} margin={{ top: 5, right: 5, left: -25, bottom: 0 }}>
+                                            <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#1E293B" : "#E2E8F0"} vertical={false} />
+                                            <XAxis 
+                                                dataKey="month" 
+                                                tick={{ fill: isDark ? "#94A3B8" : "#4B5563", fontSize: 9 }}
+                                                stroke={isDark ? "#334155" : "#CBD5E1"}
+                                            />
+                                            <YAxis 
+                                                tickFormatter={(val) => currencySymbol + val} 
+                                                tick={{ fill: isDark ? "#94A3B8" : "#4B5563", fontSize: 9 }}
+                                                stroke={isDark ? "#334155" : "#CBD5E1"}
+                                            />
+                                            <Tooltip content={<CustomTooltip />} />
+                                            <Bar dataKey="Spent" name="Monthly Spending" fill={isDark ? "#FBBF24" : "#D97706"} radius={[4, 4, 0, 0]} />
+                                        </BarChart>
+                                    </ResponsiveContainer>
+                                </div>
+                            </div>
+
+                            {/* 4. Pie Category Breakdown */}
+                            <div className={"p-4 rounded-xl border " + (isDark ? "bg-slate-900/60 border-slate-800/80" : "bg-slate-50 border-slate-200")}>
+                                <h3 className="text-[11px] font-bold tracking-wider text-violet-500 uppercase mb-3">
+                                    🍰 CATEGORY EXPENSE BREAKDOWN
+                                </h3>
+                                <div className="flex flex-col items-center justify-between gap-4">
+                                    <div className="h-[180px] w-[180px]">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <PieChart>
+                                                <Pie
+                                                    data={pieData}
+                                                    cx="50%"
+                                                    cy="50%"
+                                                    innerRadius={45}
+                                                    outerRadius={70}
+                                                    paddingAngle={3}
+                                                    dataKey="Spent"
+                                                    nameKey="category"
+                                                >
+                                                    {pieData.map((entry, index) => (
+                                                        <Cell key={"cell-" + index} fill={nonZeroBudgets.length > 0 ? COLORS[index % COLORS.length] : 'rgba(120, 120, 120, 0.15)'} />
+                                                    ))}
+                                                </Pie>
+                                                <Tooltip content={<CustomTooltip />} />
+                                            </PieChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2 justify-center max-w-full">
+                                        {pieData.map((entry, index) => (
+                                            <div key={index} className="flex items-center gap-1.5 text-[10px] font-semibold">
+                                                <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: nonZeroBudgets.length > 0 ? COLORS[index % COLORS.length] : 'rgba(120, 120, 120, 0.15)' }}></span>
+                                                <span className="opacity-85">{entry.category}:</span>
+                                                <span className="font-bold">{currencySymbol}{Number(entry.Spent).toFixed(0)}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    );
+                }
+
+                const root = ReactDOM.createRoot(document.getElementById('root'));
+                root.render(<App />);
             </script>
         </body>
         </html>
     """.trimIndent()
- 
+
     android.view.View.OnClickListener { } // stub
- 
+
     AndroidView(
         modifier = modifier.clip(RoundedCornerShape(12.dp)),
         factory = { context ->
@@ -2806,7 +3339,8 @@ fun QuickAddExpenseDialog(
                     }
 
                     val baseAmount = viewModel.convertCurrency(amt, selectedCurrency, config.currency)
-                    val customCategoryTax = viewModel.categoryTaxRates.value[selectedCategoryId] ?: config.taxRateDefault
+                    val realTimeVat = viewModel.realTimeTaxData.value?.standardVatRate ?: config.taxRateDefault
+                    val customCategoryTax = viewModel.categoryTaxRates.value[selectedCategoryId] ?: realTimeVat
                     val taxRateToUse = if (isTaxDeductible) customCategoryTax else 0.0
 
                     // Include original currency in notes for CSV analysis audit trails

@@ -21,7 +21,7 @@ import com.example.data.model.*
         ExchangeRateEntity::class,
         UserDebtEntity::class
     ],
-    version = 9, // bumped version to 9 to support user debts
+    version = 10, // bumped version to 10 to support receiptPath in TransactionEntity
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

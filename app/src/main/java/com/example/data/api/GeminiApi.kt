@@ -1,6 +1,7 @@
 package com.example.data.api
 
 import com.example.BuildConfig
+import com.example.data.model.*
 import com.squareup.moshi.Json
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
@@ -221,5 +222,112 @@ object GeminiApiClient {
         } catch (e: Exception) {
             "Exception: ${e.message}"
         }
+    }
+
+    /**
+     * Fetches official real-time VAT/sales tax rate and income tax brackets for selected countries.
+     */
+    suspend fun fetchRealTimeTaxData(country: String): RealTimeTaxData = withContext(Dispatchers.IO) {
+        // Fallback standard configs
+        val standardVat = when (country.uppercase()) {
+            "BANGLADESH" -> 15.0
+            "INDIA" -> 18.0
+            "GERMANY" -> 19.0
+            "USA" -> 8.25
+            else -> 10.0
+        }
+        val defaultBrackets = when (country.uppercase()) {
+            "BANGLADESH" -> listOf(
+                RealTimeTaxBracket("Up to ৳3,50,000", 0.0),
+                RealTimeTaxBracket("Next ৳1,00,000", 5.0),
+                RealTimeTaxBracket("Next ৳3,00,000", 10.0),
+                RealTimeTaxBracket("Next ৳4,00,000", 15.0),
+                RealTimeTaxBracket("Next ৳5,00,000", 20.0),
+                RealTimeTaxBracket("Above that", 25.0)
+            )
+            "INDIA" -> listOf(
+                RealTimeTaxBracket("Up to ₹3,00,000", 0.0),
+                RealTimeTaxBracket("₹3,00,001 - ₹6,00,000", 5.0),
+                RealTimeTaxBracket("₹6,00,001 - ₹9,00,000", 10.0),
+                RealTimeTaxBracket("₹9,00,001 - ₹12,00,000", 15.0),
+                RealTimeTaxBracket("₹12,00,001 - ₹15,00,000", 20.0),
+                RealTimeTaxBracket("Above ₹15,00,000", 30.0)
+            )
+            "GERMANY" -> listOf(
+                RealTimeTaxBracket("Up to €11,604", 0.0),
+                RealTimeTaxBracket("€11,605 - €66,760", 14.0),
+                RealTimeTaxBracket("€66,761 - €277,825", 42.0),
+                RealTimeTaxBracket("Above €277,826", 45.0)
+            )
+            else -> listOf( // USA Standard Single filer
+                RealTimeTaxBracket("Up to \$11,600", 10.0),
+                RealTimeTaxBracket("\$11,601 - \$47,150", 12.0),
+                RealTimeTaxBracket("\$47,151 - \$100,525", 22.0),
+                RealTimeTaxBracket("\$100,526 - \$191,950", 24.0),
+                RealTimeTaxBracket("\$191,951 - \$243,725", 32.0),
+                RealTimeTaxBracket("\$243,726 - \$609,350", 35.0),
+                RealTimeTaxBracket("Above \$609,351", 37.0)
+            )
+        }
+
+        if (!isApiKeyConfigured()) {
+            return@withContext RealTimeTaxData(country, standardVat, defaultBrackets)
+        }
+
+        val promptText = """
+            Retrieve the current, actual VAT/GST/sales tax rate and personal income tax brackets for the country: "$country" for the current fiscal cycle.
+            Format response as a single raw JSON object (with no markdown backticks, no comments, and no extra text) matching this schema exactly:
+            {
+              "country": "$country",
+              "standardVatRate": 15.0,
+              "brackets": [
+                {
+                  "incomeRange": "Up to $11,000",
+                  "rate": 10.0
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val request = GeminiRequest(
+            contents = listOf(
+                GeminiContent(parts = listOf(GeminiPart(text = promptText)))
+            ),
+            generationConfig = GeminiGenerationConfig(
+                temperature = 0.2f,
+                responseMimeType = "application/json"
+            )
+        )
+
+        try {
+            val response = service.generateContent(getApiKey(), request)
+            val jsonText = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text ?: ""
+            if (jsonText.isNotEmpty()) {
+                val cleanJson = jsonText.substring(jsonText.indexOf("{"), jsonText.lastIndexOf("}") + 1)
+                val jsonObject = org.json.JSONObject(cleanJson)
+                val retCountry = jsonObject.optString("country", country)
+                val retVat = jsonObject.optDouble("standardVatRate", standardVat)
+                val bracketsArray = jsonObject.optJSONArray("brackets")
+                val bracketList = mutableListOf<RealTimeTaxBracket>()
+                if (bracketsArray != null) {
+                    for (i in 0 until bracketsArray.length()) {
+                        val bObj = bracketsArray.getJSONObject(i)
+                        bracketList.add(
+                            RealTimeTaxBracket(
+                                incomeRange = bObj.optString("incomeRange", ""),
+                                rate = bObj.optDouble("rate", 0.0)
+                            )
+                        )
+                    }
+                }
+                if (bracketList.isNotEmpty()) {
+                    return@withContext RealTimeTaxData(retCountry, retVat, bracketList)
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        return@withContext RealTimeTaxData(country, standardVat, defaultBrackets)
     }
 }

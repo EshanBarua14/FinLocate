@@ -747,6 +747,13 @@ fun DetailedFormLayout(
                                     }
                                 }
 
+                                var savedPath = ""
+                                try {
+                                    savedPath = saveReceiptImage(context, bitmap, extractedMerchant.ifEmpty { "Scanned Receipt" }, extractedAmountStr.ifEmpty { "0.00" })
+                                } catch (err: Exception) {
+                                    err.printStackTrace()
+                                }
+
                                 // Save directly to local Room SQLite as a pending transaction
                                 try {
                                     val finalAmount = extractedAmountStr.toDoubleOrNull() ?: 0.0
@@ -768,26 +775,36 @@ fun DetailedFormLayout(
                                         accountId = finalAccId,
                                         merchant = extractedMerchant.ifEmpty { "Scanned Merchant" },
                                         notes = "[Pending Review] - AI Camera Receipt Scan",
-                                        customTimestamp = parsedTimestamp
+                                        customTimestamp = parsedTimestamp,
+                                        receiptPath = savedPath
                                     )
                                 } catch (e: Exception) {
                                     e.printStackTrace()
                                 }
-
-                                try {
-                                    saveReceiptImage(context, bitmap, extractedMerchant.ifEmpty { "Scanned Receipt" }, extractedAmountStr.ifEmpty { "0.00" })
-                                } catch (err: Exception) {
-                                    err.printStackTrace()
-                                }
                                 Toast.makeText(context, "Receipt Scanned, Pending Transaction Created & Saved to Gallery!", Toast.LENGTH_SHORT).show()
                             }
                         } else {
+                            var savedPath = ""
                             try {
-                                saveReceiptImage(context, bitmap, "Scanned Vendor", "0.00")
+                                savedPath = saveReceiptImage(context, bitmap, "Scanned Vendor", "0.00")
                             } catch (err: Exception) {
                                 err.printStackTrace()
                             }
-                            Toast.makeText(context, "Receipt Saved (OCR processing failed).", Toast.LENGTH_SHORT).show()
+                            // Still add a transaction so they can link/view it
+                            try {
+                                val finalCatId = selectedCategoryId.let { if (it != 0L) it else (categories.firstOrNull()?.id ?: 1L) }
+                                val finalAccId = selectedAccountId.let { if (it != 0L) it else (accounts.firstOrNull()?.id ?: 1L) }
+                                viewModel.addTransaction(
+                                    amount = 0.0,
+                                    type = "EXPENSE",
+                                    categoryId = finalCatId,
+                                    accountId = finalAccId,
+                                    merchant = "Scanned Vendor",
+                                    notes = "[OCR Failed] - Tap to edit and update details",
+                                    receiptPath = savedPath
+                                )
+                            } catch (e: Exception) {}
+                            Toast.makeText(context, "Receipt Saved (OCR processing failed), Blank Transaction Created.", Toast.LENGTH_SHORT).show()
                         }
                     } catch (e: Exception) {
                         Toast.makeText(context, "Error reading receipt: ${e.message}", Toast.LENGTH_LONG).show()
@@ -1478,7 +1495,8 @@ fun DetailedFormLayout(
                 val amt = formAmount.toDoubleOrNull() ?: 0.0
                 if (amt > 0) {
                     val baseAmount = viewModel.convertCurrency(amt, formCurrency, config.currency)
-                    val customCategoryTax = viewModel.categoryTaxRates.value[selectedCategoryId] ?: config.taxRateDefault
+                    val realTimeVat = viewModel.realTimeTaxData.value?.standardVatRate ?: config.taxRateDefault
+                    val customCategoryTax = viewModel.categoryTaxRates.value[selectedCategoryId] ?: realTimeVat
                     val taxRateToUse = if (isTaxDeductible) customCategoryTax else 0.0
 
                     viewModel.addTransaction(

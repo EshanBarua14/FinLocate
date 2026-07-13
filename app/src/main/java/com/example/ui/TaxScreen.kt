@@ -9,6 +9,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AssignmentTurnedIn
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -352,26 +353,98 @@ fun TaxScreen(
 
         // --- 2. LOCAL CODES DISPLAY ---
         item {
+            val realTimeData by viewModel.realTimeTaxData.collectAsState()
+            val realTimeLoading by viewModel.realTimeTaxLoading.collectAsState()
+
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)),
                 shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth().testTag("real_time_tax_card")
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "COMPLIANCE & DEDUCTIONS RULES (${config.country})",
-                        fontWeight = FontWeight.ExtraBold,
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "REAL-TIME TAX COMPLIANCE (${config.country})",
+                            fontWeight = FontWeight.ExtraBold,
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        if (realTimeLoading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        } else {
+                            IconButton(
+                                onClick = { viewModel.fetchTaxDataForCountry(config.country) },
+                                modifier = Modifier.size(24.dp).testTag("refresh_realtime_tax_btn")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = "Refresh Realtime Tax",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            }
+                        }
+                    }
                     Spacer(modifier = Modifier.height(8.dp))
+                    
+                    val vatToDisplay = realTimeData?.standardVatRate ?: config.taxRateDefault
                     Text(
-                        text = "Standard Bracket VAT/MwSt average rate is estimated at ${config.taxRateDefault}%. Tag invoices appropriately to reduce gross annual taxable earnings in the ${config.fiscalYear} fiscal cycle.",
+                        text = "Standard VAT/MwSt average rate is estimated at $vatToDisplay% from official real-time APIs. Tag invoices appropriately to reduce gross annual taxable earnings in the ${config.fiscalYear} fiscal cycle.",
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
                         lineHeight = 15.sp
                     )
                     Spacer(modifier = Modifier.height(12.dp))
+
+                    if (realTimeData != null && realTimeData!!.brackets.isNotEmpty()) {
+                        Text(
+                            text = "OFFICIAL INCOME TAX BRACKETS:",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        realTimeData!!.brackets.forEach { bracket ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.Info,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = bracket.incomeRange,
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                                Text(
+                                    text = "${bracket.rate}%",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = FintechGreen
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
+
                     Text(
                         text = "DEDUCTIBLE REGIONS TO ENFORCE:",
                         fontSize = 10.sp,

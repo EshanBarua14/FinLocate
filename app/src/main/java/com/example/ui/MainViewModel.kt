@@ -49,6 +49,339 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // --- SharedPreferences for local settings ---
     private val prefs = application.getSharedPreferences("wealthflow_prefs", Application.MODE_PRIVATE)
+
+    // --- User Authentication and State ---
+    private val _userToken = MutableStateFlow(prefs.getString("user_jwt_token", null))
+    val userToken: StateFlow<String?> = _userToken.asStateFlow()
+
+    private val _username = MutableStateFlow(prefs.getString("user_username", null))
+    val username: StateFlow<String?> = _username.asStateFlow()
+
+    private val _userEmail = MutableStateFlow(prefs.getString("user_email", null))
+    val userEmail: StateFlow<String?> = _userEmail.asStateFlow()
+
+    private val _isLoggedIn = MutableStateFlow(prefs.getBoolean("is_logged_in", false))
+    val isLoggedIn: StateFlow<Boolean> = _isLoggedIn.asStateFlow()
+
+    fun registerUser(usernameInput: String, passwordInput: String, emailInput: String, onResult: (String?) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val baseUrl = remoteSyncUrl.value.trim().removeSuffix("/")
+                val registerUrl = if (baseUrl.isEmpty()) "http://localhost:5000/api/auth/register" else "$baseUrl/api/auth/register"
+                val request = com.example.data.api.AuthRegisterRequest(
+                    username = usernameInput,
+                    email = emailInput,
+                    password = passwordInput,
+                    taxProfile = activeCountryConfig.value.country
+                )
+                val response = com.example.data.api.CloudSyncClient.service.registerUser(registerUrl, request)
+                if (response.success && response.token != null && response.user != null) {
+                    prefs.edit()
+                        .putString("user_jwt_token", response.token)
+                        .putString("user_username", response.user.username)
+                        .putString("user_email", response.user.email)
+                        .putBoolean("is_logged_in", true)
+                        .apply()
+                    _userToken.value = response.token
+                    _username.value = response.user.username
+                    _userEmail.value = response.user.email
+                    _isLoggedIn.value = true
+                    onResult(null) // success
+                } else {
+                    onResult(response.error ?: response.message ?: "Registration failed")
+                }
+            } catch (e: Exception) {
+                onResult(e.localizedMessage ?: "Network error")
+            }
+        }
+    }
+
+    fun loginUser(emailInput: String, passwordInput: String, onResult: (String?) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val baseUrl = remoteSyncUrl.value.trim().removeSuffix("/")
+                val loginUrl = if (baseUrl.isEmpty()) "http://localhost:5000/api/auth/login" else "$baseUrl/api/auth/login"
+                val request = com.example.data.api.AuthLoginRequest(
+                    email = emailInput,
+                    password = passwordInput
+                )
+                val response = com.example.data.api.CloudSyncClient.service.loginUser(loginUrl, request)
+                if (response.success && response.token != null && response.user != null) {
+                    prefs.edit()
+                        .putString("user_jwt_token", response.token)
+                        .putString("user_username", response.user.username)
+                        .putString("user_email", response.user.email)
+                        .putBoolean("is_logged_in", true)
+                        .apply()
+                    _userToken.value = response.token
+                    _username.value = response.user.username
+                    _userEmail.value = response.user.email
+                    _isLoggedIn.value = true
+                    onResult(null) // success
+                } else {
+                    onResult(response.error ?: response.message ?: "Invalid credentials")
+                }
+            } catch (e: Exception) {
+                onResult(e.localizedMessage ?: "Network error")
+            }
+        }
+    }
+
+    fun logoutUser() {
+        prefs.edit()
+            .remove("user_jwt_token")
+            .remove("user_username")
+            .remove("user_email")
+            .putBoolean("is_logged_in", false)
+            .apply()
+        _userToken.value = null
+        _username.value = null
+        _userEmail.value = null
+        _isLoggedIn.value = false
+    }
+
+    fun syncExpensesAndAccountsWithCloud(onResult: (String) -> Unit) {
+        viewModelScope.launch {
+            val token = userToken.value
+            if (token == null) {
+                onResult("Error: You must be logged in to sync with the cloud.")
+                return@launch
+            }
+            try {
+                onResult("Preparing data for sync...")
+                val baseUrl = remoteSyncUrl.value.trim().removeSuffix("/")
+                val authHeader = "Bearer $token"
+
+                // Fetch current lists
+                val localAccounts = accounts.value
+                val localTxs = allTransactions.value
+                val localCats = categories.value
+
+                // Map accounts to DTO
+                val accountDtos = localAccounts.map { a ->
+                    com.example.data.api.AccountSyncDto(
+                        id = a.id.toString(),
+                        name = a.name,
+                        type = a.type,
+                        balance = a.balance,
+                        currency = a.currency,
+                        provider = a.provider,
+                        updatedAt = a.updatedAt
+                    )
+                }
+
+                // Map transactions to DTO
+                val expenseDtos = localTxs.map { t ->
+                    val catName = localCats.find { it.id == t.categoryId }?.name ?: "Other"
+                    val accName = localAccounts.find { it.id == t.accountId }?.name ?: "Cash"
+                    com.example.data.api.ExpenseSyncDto(
+                        id = t.id.toString(),
+                        amount = t.amount,
+                        type = t.type,
+                        merchant = t.merchant,
+                        categoryName = catName,
+                        accountName = accName,
+                        notes = t.notes,
+                        timestamp = t.timestamp,
+                        isTaxDeductible = t.isTaxDeductible,
+                        taxRate = t.taxRate
+                    )
+                }
+
+                onResult("Uploading local data...")
+                val accountsSyncUrl = if (baseUrl.isEmpty()) "http://localhost:5000/api/accounts" else "$baseUrl/api/accounts"
+                val expensesSyncUrl = if (baseUrl.isEmpty()) "http://localhost:5000/api/expenses" else "$baseUrl/api/expenses"
+                val budgetsSyncUrl = if (baseUrl.isEmpty()) "http://localhost:5000/api/budgets" else "$baseUrl/api/budgets"
+
+                val accPushResponse = com.example.data.api.CloudSyncClient.service.syncAccounts(accountsSyncUrl, authHeader, accountDtos)
+                val expPushResponse = com.example.data.api.CloudSyncClient.service.syncExpenses(expensesSyncUrl, authHeader, expenseDtos)
+
+                // Push budgets to cloud database
+                val localBudgets = activeBudgets.value
+                val budgetDtos = localBudgets.map { b ->
+                    val catName = localCats.find { it.id == b.categoryId }?.name ?: "Unknown"
+                    com.example.data.api.BudgetSyncDto(
+                        id = "${b.categoryId}_${b.month}",
+                        categoryId = b.categoryId,
+                        categoryName = catName,
+                        amount = b.amount,
+                        month = b.month
+                    )
+                }
+                if (budgetDtos.isNotEmpty()) {
+                    try {
+                        com.example.data.api.CloudSyncClient.service.syncBudgets(budgetsSyncUrl, authHeader, budgetDtos)
+                    } catch (e: Exception) {
+                        android.util.Log.e("MainViewModel", "Budgets push soft-failed: ${e.localizedMessage}")
+                    }
+                }
+
+                if (!accPushResponse.success || !expPushResponse.success) {
+                    onResult("Push sync failed: " + (accPushResponse.error ?: expPushResponse.error ?: "Server error"))
+                    return@launch
+                }
+
+                onResult("Downloading cloud updates...")
+                val remoteAccsResult = com.example.data.api.CloudSyncClient.service.getAccounts(accountsSyncUrl, authHeader)
+                val remoteExpsResult = com.example.data.api.CloudSyncClient.service.getExpenses(expensesSyncUrl, authHeader)
+
+                if (remoteAccsResult.success && remoteExpsResult.success) {
+                    onResult("Merging remote data...")
+                    
+                    // A. Merge Accounts
+                    remoteAccsResult.accounts?.forEach { remoteAcc ->
+                        val localMatch = localAccounts.find { it.name.equals(remoteAcc.name, ignoreCase = true) }
+                        if (localMatch == null) {
+                            repository.insertAccount(
+                                com.example.data.model.AccountEntity(
+                                    name = remoteAcc.name,
+                                    type = remoteAcc.type,
+                                    balance = remoteAcc.balance,
+                                    currency = remoteAcc.currency,
+                                    provider = remoteAcc.provider,
+                                    updatedAt = remoteAcc.updatedAt
+                                )
+                            )
+                        } else {
+                            if (remoteAcc.updatedAt > localMatch.updatedAt) {
+                                repository.updateAccount(
+                                    localMatch.copy(
+                                        balance = remoteAcc.balance,
+                                        type = remoteAcc.type,
+                                        provider = remoteAcc.provider,
+                                        updatedAt = remoteAcc.updatedAt
+                                    )
+                                )
+                            }
+                        }
+                    }
+
+                    // Refresh local caches for transactions matching
+                    val updatedLocalAccounts = db.accountDao().getAllAccountsStatic()
+                    val updatedLocalCats = db.categoryDao().getAllCategoriesStatic()
+
+                    // B. Merge Expenses
+                    remoteExpsResult.expenses?.forEach { remoteExp ->
+                        val txMatch = localTxs.find { 
+                            it.merchant == remoteExp.merchant && 
+                            Math.abs(it.amount - remoteExp.amount) < 0.01 && 
+                            it.timestamp == remoteExp.timestamp 
+                        }
+                        if (txMatch == null) {
+                            val catId = updatedLocalCats.find { it.name.equals(remoteExp.categoryName, ignoreCase = true) }?.id
+                                ?: updatedLocalCats.firstOrNull()?.id ?: 1L
+                            val accId = updatedLocalAccounts.find { it.name.equals(remoteExp.accountName, ignoreCase = true) }?.id
+                                ?: updatedLocalAccounts.firstOrNull()?.id ?: 1L
+
+                            repository.insertTransaction(
+                                com.example.data.model.TransactionEntity(
+                                    amount = remoteExp.amount,
+                                    type = remoteExp.type,
+                                    categoryId = catId,
+                                    accountId = accId,
+                                    merchant = remoteExp.merchant,
+                                    isTaxDeductible = remoteExp.isTaxDeductible,
+                                    taxRate = remoteExp.taxRate,
+                                    notes = remoteExp.notes,
+                                    timestamp = remoteExp.timestamp
+                                )
+                            )
+                        }
+                    }
+
+                    // Download any budget alerts
+                    fetchCloudNotifications()
+
+                    postNotification("Real-time cloud database sync complete!")
+                    onResult("SUCCESS")
+                } else {
+                    onResult("Pull sync failed: " + (remoteAccsResult.error ?: remoteExpsResult.error ?: "Download rejected"))
+                }
+            } catch (e: Exception) {
+                onResult("Cloud Sync Fail: " + (e.localizedMessage ?: "Connection error"))
+            }
+        }
+    }
+
+    // --- Cloud Notifications & Budget Alarms ---
+    private val _cloudNotifications = MutableStateFlow<List<com.example.data.api.NotificationSyncDto>>(emptyList())
+    val cloudNotifications: StateFlow<List<com.example.data.api.NotificationSyncDto>> = _cloudNotifications.asStateFlow()
+
+    fun fetchCloudNotifications(onComplete: (String?) -> Unit = {}) {
+        viewModelScope.launch {
+            val token = userToken.value ?: return@launch
+            try {
+                val baseUrl = remoteSyncUrl.value.trim().removeSuffix("/")
+                val url = if (baseUrl.isEmpty()) "http://localhost:5000/api/notifications" else "$baseUrl/api/notifications"
+                val response = com.example.data.api.CloudSyncClient.service.getNotifications(url, "Bearer $token")
+                if (response.success && response.notifications != null) {
+                    _cloudNotifications.value = response.notifications
+                    onComplete(null)
+
+                    // Post toast/alert notification if any unread alarms exist
+                    response.notifications.firstOrNull()?.let { lastNotif ->
+                        val shownKey = "shown_notif_${lastNotif.id}"
+                        if (!prefs.getBoolean(shownKey, false)) {
+                            postNotification("⚠️ ${lastNotif.title}: ${lastNotif.message}")
+                            prefs.edit().putBoolean(shownKey, true).apply()
+                        }
+                    }
+                } else {
+                    onComplete(response.error ?: "Failed to retrieve notifications")
+                }
+            } catch (e: Exception) {
+                onComplete(e.localizedMessage ?: "Network error")
+            }
+        }
+    }
+
+    // --- Cloud Database Search Engine ---
+    private val _cloudSearchResult = MutableStateFlow<List<com.example.data.api.ExpenseSyncDto>>(emptyList())
+    val cloudSearchResult: StateFlow<List<com.example.data.api.ExpenseSyncDto>> = _cloudSearchResult.asStateFlow()
+
+    private val _cloudSearchLoading = MutableStateFlow(false)
+    val cloudSearchLoading: StateFlow<Boolean> = _cloudSearchLoading.asStateFlow()
+
+    fun performCloudSearch(startDate: String?, endDate: String?, categoryName: String?, keyword: String?, onResult: (String?) -> Unit) {
+        viewModelScope.launch {
+            val token = userToken.value
+            if (token == null) {
+                onResult("You must be logged in to search the cloud.")
+                return@launch
+            }
+            _cloudSearchLoading.value = true
+            try {
+                val baseUrl = remoteSyncUrl.value.trim().removeSuffix("/")
+                val url = if (baseUrl.isEmpty()) "http://localhost:5000/api/expenses" else "$baseUrl/api/expenses"
+
+                val start = startDate?.ifEmpty { null }
+                val end = endDate?.ifEmpty { null }
+                val cat = categoryName?.ifEmpty { null }
+                val key = keyword?.ifEmpty { null }
+
+                val response = com.example.data.api.CloudSyncClient.service.searchExpenses(
+                    url = url,
+                    authHeader = "Bearer $token",
+                    startDate = start,
+                    endDate = end,
+                    categoryName = cat,
+                    keyword = key
+                )
+
+                if (response.success && response.expenses != null) {
+                    _cloudSearchResult.value = response.expenses
+                    onResult(null)
+                } else {
+                    onResult(response.error ?: "Cloud search returned an error")
+                }
+            } catch (e: Exception) {
+                onResult(e.localizedMessage ?: "Network connection error during cloud search")
+            } finally {
+                _cloudSearchLoading.value = false
+            }
+        }
+    }
+
     private val _applyLocalTax = MutableStateFlow(prefs.getBoolean("apply_local_tax", true))
     val applyLocalTax: StateFlow<Boolean> = _applyLocalTax.asStateFlow()
 
@@ -363,6 +696,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         .map { countryConfigProvider.loadConfigForCountry(it.selectedCountry) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), CountryConfig.USA)
 
+    // --- Real-time Tax Bracket Flow ---
+    private val _realTimeTaxData = MutableStateFlow<RealTimeTaxData?>(null)
+    val realTimeTaxData: StateFlow<RealTimeTaxData?> = _realTimeTaxData.asStateFlow()
+    
+    private val _realTimeTaxLoading = MutableStateFlow(false)
+    val realTimeTaxLoading: StateFlow<Boolean> = _realTimeTaxLoading.asStateFlow()
+
+    fun fetchTaxDataForCountry(countryName: String) {
+        viewModelScope.launch {
+            _realTimeTaxLoading.value = true
+            try {
+                val data = com.example.data.api.GeminiApiClient.fetchRealTimeTaxData(countryName)
+                _realTimeTaxData.value = data
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                _realTimeTaxLoading.value = false
+            }
+        }
+    }
+
     // --- Core Flows ---
     val accounts: StateFlow<List<AccountEntity>> = repository.allAccounts
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -387,6 +741,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     val isExportEncryptionEnabled = MutableStateFlow(false)
     val exportPasscode = MutableStateFlow("SecurePass2026")
+    val remoteSyncUrl = MutableStateFlow(prefs.getString("remote_sync_url", "http://10.0.2.2:5000") ?: "http://10.0.2.2:5000")
 
     fun toggleExportEncryption() {
         isExportEncryptionEnabled.value = !isExportEncryptionEnabled.value
@@ -394,6 +749,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setExportPasscode(code: String) {
         exportPasscode.value = code
+    }
+
+    fun setRemoteSyncUrl(url: String) {
+        remoteSyncUrl.value = url
+        prefs.edit().putString("remote_sync_url", url).apply()
+    }
+
+    private fun hashPasscode(passcode: String): String {
+        return try {
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+            val hash = digest.digest(passcode.toByteArray(Charsets.UTF_8))
+            hash.joinToString("") { "%02x".format(it) }
+        } catch (e: Exception) {
+            passcode
+        }
     }
 
     val detectedAnomalies: StateFlow<List<AnomalyReport>> = combine(allTransactions, accounts) { txs, accs ->
@@ -534,6 +904,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 // Delay for 1 hour before next periodic background check
                 kotlinx.coroutines.delay(3600_000L)
+            }
+        }
+
+        viewModelScope.launch {
+            activeCountryConfig.collect { config ->
+                fetchTaxDataForCountry(config.country)
             }
         }
     }
@@ -991,7 +1367,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         recurrenceInterval: String = "NONE",
         splitCount: Int = 1,
         customTimestamp: Long? = null,
-        tags: String = ""
+        tags: String = "",
+        receiptPath: String = ""
     ) {
         viewModelScope.launch {
             val tx = TransactionEntity(
@@ -1008,7 +1385,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 isRecurring = isRecurring,
                 recurrenceInterval = recurrenceInterval,
                 splitCount = splitCount,
-                tags = tags
+                tags = tags,
+                receiptPath = receiptPath
             )
             repository.insertTransaction(tx)
 
@@ -1102,6 +1480,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
             incrementTxCountSinceLastExport()
+        }
+    }
+
+    fun updateTransaction(transaction: TransactionEntity) {
+        viewModelScope.launch {
+            repository.updateTransaction(transaction)
         }
     }
 
@@ -1516,7 +1900,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val catName = cats.find { it.id == catId }?.name ?: "Eligible Deductions"
             val spentSum = catTxs.sumOf { it.amount }
             // Use average tax rate of transactions or default country taxRate
-            val rate = catTxs.firstOrNull()?.taxRate ?: config.taxRateDefault
+            val rate = catTxs.firstOrNull()?.taxRate ?: (realTimeTaxData.value?.standardVatRate ?: config.taxRateDefault)
             val relief = spentSum * (rate / 100.0)
             taxBuilder.append("\"$catName\",$spentSum,${rate}%,$relief\n")
             totalDeductionVal += spentSum
@@ -1831,6 +2215,122 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 onResult("Success: Imported $parsedCount transactions successfully!")
             } catch (e: Exception) {
                 onResult("Import error: ${e.localizedMessage ?: "unknown error"}")
+            }
+        }
+    }
+
+    fun uploadBackupToCloud(context: Context, onResult: (String) -> Unit) {
+        viewModelScope.launch {
+            try {
+                onResult("Compiling database state...")
+                val accs = accounts.value
+                val cats = categories.value
+                val txs = allTransactions.value
+                val buds = activeBudgets.value
+                val config = activeCountryConfig.value
+
+                val dbSnapshotBuilder = StringBuilder()
+                dbSnapshotBuilder.append("{\n")
+                dbSnapshotBuilder.append("  \"backup_metadata\": {\n")
+                dbSnapshotBuilder.append("    \"timestamp\": ${System.currentTimeMillis()},\n")
+                dbSnapshotBuilder.append("    \"country\": \"${config.country}\",\n")
+                dbSnapshotBuilder.append("    \"currency\": \"${config.currency}\"\n")
+                dbSnapshotBuilder.append("  },\n")
+                
+                dbSnapshotBuilder.append("  \"accounts\": [\n")
+                accs.forEachIndexed { i, a ->
+                    dbSnapshotBuilder.append("    {\"id\": ${a.id}, \"name\": \"${a.name.replace("\"", "\\\"")}\", \"balance\": ${a.balance}, \"type\": \"${a.type}\", \"currency\": \"${a.currency}\", \"provider\": \"${a.provider}\", \"isSyncEnabled\": ${a.isSyncEnabled}, \"updatedAt\": ${a.updatedAt}}")
+                    if (i < accs.size - 1) dbSnapshotBuilder.append(",")
+                    dbSnapshotBuilder.append("\n")
+                }
+                dbSnapshotBuilder.append("  ],\n")
+
+                dbSnapshotBuilder.append("  \"categories\": [\n")
+                cats.forEachIndexed { i, c ->
+                    dbSnapshotBuilder.append("    {\"id\": ${c.id}, \"name\": \"${c.name.replace("\"", "\\\"")}\", \"isIncome\": ${c.isIncome}}")
+                    if (i < cats.size - 1) dbSnapshotBuilder.append(",")
+                    dbSnapshotBuilder.append("\n")
+                }
+                dbSnapshotBuilder.append("  ],\n")
+
+                dbSnapshotBuilder.append("  \"budgets\": [\n")
+                buds.forEachIndexed { i, b ->
+                    dbSnapshotBuilder.append("    {\"categoryId\": ${b.categoryId}, \"amount\": ${b.amount}, \"spent\": ${b.spent}, \"month\": \"${b.month}\", \"isAdaptive\": ${b.isAdaptive}, \"savingsGoal\": ${b.savingsGoal}, \"updatedAt\": ${b.updatedAt}}")
+                    if (i < buds.size - 1) dbSnapshotBuilder.append(",")
+                    dbSnapshotBuilder.append("\n")
+                }
+                dbSnapshotBuilder.append("  ],\n")
+
+                dbSnapshotBuilder.append("  \"transactions\": [\n")
+                txs.forEachIndexed { i, t ->
+                    dbSnapshotBuilder.append("    {\"id\": ${t.id}, \"amount\": ${t.amount}, \"type\": \"${t.type}\", \"categoryId\": ${t.categoryId}, \"accountId\": ${t.accountId}, \"merchant\": \"${t.merchant.replace("\"", "\\\"")}\", \"notes\": \"${t.notes.replace("\"", "\\\"")}\", \"timestamp\": ${t.timestamp}, \"isTaxDeductible\": ${t.isTaxDeductible}, \"taxRate\": ${t.taxRate}, \"userEmail\": \"${t.userEmail}\", \"isRecurring\": ${t.isRecurring}, \"recurrenceInterval\": \"${t.recurrenceInterval}\"}")
+                    if (i < txs.size - 1) dbSnapshotBuilder.append(",")
+                    dbSnapshotBuilder.append("\n")
+                }
+                dbSnapshotBuilder.append("  ]\n")
+                dbSnapshotBuilder.append("}")
+
+                val dbJson = dbSnapshotBuilder.toString()
+                val passcode = exportPasscode.value.ifEmpty { "WealthFlowSecureKey2026" }
+                
+                onResult("Encrypting with AES-256...")
+                val encryptedPayload = CsvEncryptionUtility.encrypt(dbJson, passcode)
+                val passcodeHash = hashPasscode(passcode)
+
+                onResult("Uploading cloud backup...")
+                val baseUrl = remoteSyncUrl.value.trim().removeSuffix("/")
+                val syncUrl = "$baseUrl/api/sync/backup"
+
+                val requestDto = com.example.data.api.CloudBackupRequest(
+                    passcodeHash = passcodeHash,
+                    encryptedData = encryptedPayload
+                )
+
+                val response = com.example.data.api.CloudSyncClient.service.uploadBackup(syncUrl, requestDto)
+                if (response.success) {
+                    postNotification("Zero-Knowledge secure backup successfully uploaded to cloud!")
+                    onResult("SUCCESS")
+                } else {
+                    onResult("Upload unsuccessful: ${response.message ?: "Server rejection"}")
+                }
+            } catch (e: Exception) {
+                onResult("Cloud Sync Fail: ${e.localizedMessage ?: "Connection error"}")
+            }
+        }
+    }
+
+    fun downloadBackupFromCloud(context: Context, onResult: (String) -> Unit) {
+        viewModelScope.launch {
+            try {
+                onResult("Contacting Cloud Sync Server...")
+                val passcode = exportPasscode.value.ifEmpty { "WealthFlowSecureKey2026" }
+                val passcodeHash = hashPasscode(passcode)
+
+                val baseUrl = remoteSyncUrl.value.trim().removeSuffix("/")
+                val syncUrl = "$baseUrl/api/sync/restore"
+
+                val requestDto = com.example.data.api.CloudRestoreRequest(
+                    passcodeHash = passcodeHash
+                )
+
+                val response = com.example.data.api.CloudSyncClient.service.downloadBackup(syncUrl, requestDto)
+                if (response.success && response.encryptedData != null) {
+                    onResult("Decrypting AES-256 payload...")
+                    val decryptedText = CsvEncryptionUtility.decrypt(response.encryptedData, passcode)
+                    
+                    onResult("Restoring local database...")
+                    val success = repository.restoreDatabaseFromBackup(decryptedText)
+                    if (success) {
+                        postNotification("Cloud database backup snapshot restored and decrypted successfully!")
+                        onResult("SUCCESS")
+                    } else {
+                        onResult("Decrypted database payload format is invalid.")
+                    }
+                } else {
+                    onResult("No cloud backups found for current client passcode.")
+                }
+            } catch (e: Exception) {
+                onResult("Cloud Sync Fail: ${e.localizedMessage ?: "Connection error"}")
             }
         }
     }

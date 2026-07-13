@@ -3,6 +3,9 @@ package com.example.ui
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import android.widget.Toast
+import android.graphics.Bitmap
+import coil.compose.AsyncImage
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.animation.*
@@ -23,6 +26,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -46,6 +50,8 @@ fun TransactionScreen(
     val config by viewModel.activeCountryConfig.collectAsState()
     val aiInsightsLoading by viewModel.aiInsightsLoading.collectAsState()
     val context = androidx.compose.ui.platform.LocalContext.current
+    val isLoggedIn by viewModel.isLoggedIn.collectAsState()
+    var activeTabMode by remember { mutableStateOf("LOCAL") }
 
     var showAddSheet by remember { mutableStateOf(false) }
     var showImportDialog by remember { mutableStateOf(false) }
@@ -609,60 +615,277 @@ fun TransactionScreen(
                 }
             }
 
-            // --- HISTORIC ENTRIES LIST ---
-            if (displayedTransactions.isEmpty()) {
-                Box(
+            // --- CLOUD VS LOCAL SELECTOR TABS ---
+            if (isLoggedIn) {
+                Row(
                     modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
-                    contentAlignment = Alignment.Center
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.padding(24.dp)
+                    val cloudResults by viewModel.cloudSearchResult.collectAsState()
+                    val cloudLoading by viewModel.cloudSearchLoading.collectAsState()
+                    
+                    Button(
+                        onClick = { activeTabMode = "LOCAL" },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (activeTabMode == "LOCAL") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            contentColor = if (activeTabMode == "LOCAL") MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(40.dp)
+                            .testTag("local_tab_btn")
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Receipt,
-                            contentDescription = "Empty",
-                            tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.25f),
-                            modifier = Modifier.size(64.dp)
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
+                        Icon(imageVector = Icons.Default.Storage, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Local Ledger", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    Button(
+                        onClick = { activeTabMode = "CLOUD" },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (activeTabMode == "CLOUD") MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            contentColor = if (activeTabMode == "CLOUD") MaterialTheme.colorScheme.onSecondary else MaterialTheme.colorScheme.onSurfaceVariant
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(40.dp)
+                            .testTag("cloud_tab_btn")
+                    ) {
+                        Icon(imageVector = Icons.Default.Cloud, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = if (searchQuery.isNotEmpty() || selectedCategoryIdFilter != null || minAmountQuery.isNotEmpty() || maxAmountQuery.isNotEmpty() || dateRangePreset != "ALL") {
-                                "NO RESULTS MATCH THOSE FILTERS"
-                            } else {
-                                "NO TRANSACTIONS IN $monthTitle"
-                            },
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
-                            fontSize = 14.sp
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Try clearing active query variables or add new entries.",
+                            text = if (cloudLoading) "Loading..." else "Cloud Vault (${cloudResults.size})",
                             fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f)
+                            fontWeight = FontWeight.Bold
                         )
                     }
                 }
+            }
+
+            // --- HISTORIC ENTRIES LIST ---
+            if (activeTabMode == "LOCAL") {
+                if (displayedTransactions.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.padding(24.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Receipt,
+                                contentDescription = "Empty",
+                                tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.25f),
+                                modifier = Modifier.size(64.dp)
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                text = if (searchQuery.isNotEmpty() || selectedCategoryIdFilter != null || minAmountQuery.isNotEmpty() || maxAmountQuery.isNotEmpty() || dateRangePreset != "ALL") {
+                                    "NO RESULTS MATCH THOSE FILTERS"
+                                } else {
+                                    "NO TRANSACTIONS IN $monthTitle"
+                                },
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
+                                fontSize = 14.sp
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Try clearing active query variables or add new entries.",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f)
+                            )
+                        }
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                        contentPadding = PaddingValues(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        items(displayedTransactions, key = { it.id }) { tx ->
+                            TransactionItemRow(
+                                transaction = tx,
+                                account = accounts.find { it.id == tx.accountId },
+                                toAccount = if (tx.toAccountId != -1L) accounts.find { it.id == tx.toAccountId } else null,
+                                category = categories.find { it.id == tx.categoryId },
+                                formatter = { viewModel.formatCurrency(it) },
+                                onDelete = { viewModel.deleteTransaction(tx) },
+                                onUpdate = { viewModel.updateTransaction(it) }
+                            )
+                        }
+                    }
+                }
             } else {
-                LazyColumn(
+                // Cloud Search UI Mode
+                val cloudResults by viewModel.cloudSearchResult.collectAsState()
+                val cloudLoading by viewModel.cloudSearchLoading.collectAsState()
+                
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.15f)),
+                    shape = RoundedCornerShape(12.dp),
                     modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 6.dp)
                 ) {
-                    items(displayedTransactions, key = { it.id }) { tx ->
-                        TransactionItemRow(
-                            transaction = tx,
-                            account = accounts.find { it.id == tx.accountId },
-                            toAccount = if (tx.toAccountId != -1L) accounts.find { it.id == tx.toAccountId } else null,
-                            category = categories.find { it.id == tx.categoryId },
-                            formatter = { viewModel.formatCurrency(it) },
-                            onDelete = { viewModel.deleteTransaction(tx) }
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                "CLOUD QUERY PARAMETERS",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.secondary,
+                                letterSpacing = 0.5.sp
+                            )
+                            if (cloudLoading) {
+                                CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 1.5.dp)
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            var cloudCatFilter by remember { mutableStateOf("") }
+                            
+                            OutlinedTextField(
+                                value = cloudCatFilter,
+                                onValueChange = { cloudCatFilter = it },
+                                placeholder = { Text("Filter Category Name (e.g. food)", fontSize = 11.sp) },
+                                singleLine = true,
+                                textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 11.sp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(44.dp)
+                                    .testTag("cloud_filter_category")
+                            )
+                            
+                            Button(
+                                onClick = {
+                                    viewModel.performCloudSearch(
+                                        startDate = if (customStartDate.isNotEmpty()) customStartDate else null,
+                                        endDate = if (customEndDate.isNotEmpty()) customEndDate else null,
+                                        categoryName = cloudCatFilter,
+                                        keyword = searchQuery
+                                    ) { errMsg ->
+                                        if (errMsg != null) {
+                                            Toast.makeText(context, errMsg, Toast.LENGTH_LONG).show()
+                                        } else {
+                                            Toast.makeText(context, "Cloud query found ${cloudResults.size} matches!", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+                                contentPadding = PaddingValues(horizontal = 12.dp),
+                                modifier = Modifier
+                                    .height(44.dp)
+                                    .testTag("run_cloud_search_btn")
+                            ) {
+                                Icon(imageVector = Icons.Default.CloudSync, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Search API", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            "Matching keywords: '$searchQuery' ${if (customStartDate.isNotEmpty()) "from $customStartDate" else ""} ${if (customEndDate.isNotEmpty()) "to $customEndDate" else ""}",
+                            fontSize = 9.sp,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                         )
+                    }
+                }
+                
+                if (cloudLoading) {
+                    Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = MaterialTheme.colorScheme.secondary)
+                    }
+                } else if (cloudResults.isEmpty()) {
+                    Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.padding(24.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CloudOff,
+                                contentDescription = null,
+                                modifier = Modifier.size(56.dp),
+                                tint = MaterialTheme.colorScheme.secondary.copy(alpha = 0.4f)
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                "No Cloud Search results matching criteria found.",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            )
+                            Text(
+                                "Try broadening your query variables or tapping 'Search API' to poll the Cloud Vault.",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                        contentPadding = PaddingValues(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        items(cloudResults) { cloudTx ->
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("cloud_search_result_card")
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .padding(12.dp)
+                                        .fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(cloudTx.merchant.uppercase(), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                        Text(
+                                            text = cloudTx.categoryName.uppercase() + " • " + cloudTx.accountName.uppercase(),
+                                            fontSize = 10.sp,
+                                            color = MaterialTheme.colorScheme.secondary,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        if (cloudTx.notes.isNotEmpty()) {
+                                            Text(cloudTx.notes, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
+                                        }
+                                        val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
+                                        Text(sdf.format(Date(cloudTx.timestamp)), fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
+                                    }
+                                    Text(
+                                        text = (if (cloudTx.type == "Expense") "-" else "+") + viewModel.formatCurrency(cloudTx.amount),
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontSize = 14.sp,
+                                        color = if (cloudTx.type == "Expense") ExpenseRose else FintechGreen
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1113,7 +1336,8 @@ fun TransactionItemRow(
     toAccount: AccountEntity?,
     category: CategoryEntity?,
     formatter: (Double) -> String,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onUpdate: (TransactionEntity) -> Unit
 ) {
     val dateStr = remember(transaction.timestamp) {
         val sdf = SimpleDateFormat("MMM dd, hh:mm a", Locale.US)
@@ -1130,6 +1354,40 @@ fun TransactionItemRow(
         "INCOME" -> Icons.Default.ArrowUpward
         "EXPENSE" -> Icons.Default.ArrowDownward
         else -> Icons.Default.SwapHoriz
+    }
+
+    val context = LocalContext.current
+    var showReceiptViewer by remember { mutableStateOf(false) }
+
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicturePreview()
+    ) { bitmap: Bitmap? ->
+        if (bitmap != null) {
+            try {
+                val savedPath = saveReceiptImage(
+                    context, 
+                    bitmap, 
+                    transaction.merchant.ifEmpty { "Linked Receipt" }, 
+                    transaction.amount.toString()
+                )
+                if (savedPath.isNotEmpty()) {
+                    onUpdate(transaction.copy(receiptPath = savedPath))
+                    Toast.makeText(context, "Receipt attached successfully!", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                Toast.makeText(context, "Failed to save receipt image.", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            cameraLauncher.launch(null)
+        } else {
+            Toast.makeText(context, "Camera permission needed to attach receipt.", Toast.LENGTH_SHORT).show()
+        }
     }
 
     Card(
@@ -1247,18 +1505,174 @@ fun TransactionItemRow(
                     color = typeColor
                 )
                 Spacer(modifier = Modifier.height(4.dp))
-                IconButton(
-                    onClick = onDelete,
-                    modifier = Modifier.size(28.dp).testTag("delete_tx_btn")
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Delete,
-                        contentDescription = "Delete",
-                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f),
-                        modifier = Modifier.size(16.dp)
-                    )
+                    // RECEIPT ATTACHMENT ACTION BUTTONS
+                    if (transaction.receiptPath.isNotEmpty()) {
+                        IconButton(
+                            onClick = { showReceiptViewer = true },
+                            modifier = Modifier.size(28.dp).testTag("view_receipt_btn_${transaction.id}")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Receipt,
+                                contentDescription = "View Receipt",
+                                tint = FintechGreen,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    } else {
+                        IconButton(
+                            onClick = {
+                                val hasPermission = androidx.core.content.ContextCompat.checkSelfPermission(
+                                    context, android.Manifest.permission.CAMERA
+                                ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                                if (hasPermission) {
+                                    cameraLauncher.launch(null)
+                                } else {
+                                    permissionLauncher.launch(android.Manifest.permission.CAMERA)
+                                }
+                            },
+                            modifier = Modifier.size(28.dp).testTag("attach_receipt_btn_${transaction.id}")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PhotoCamera,
+                                contentDescription = "Attach Receipt",
+                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+
+                    IconButton(
+                        onClick = onDelete,
+                        modifier = Modifier.size(28.dp).testTag("delete_tx_btn")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Delete",
+                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
                 }
             }
         }
+    }
+
+    // RECEIPT VIEWER DIALOG POPUP
+    if (showReceiptViewer && transaction.receiptPath.isNotEmpty()) {
+        val file = remember(transaction.receiptPath) { java.io.File(transaction.receiptPath) }
+        AlertDialog(
+            onDismissRequest = { showReceiptViewer = false },
+            title = {
+                Text(
+                    text = "LINKED RECEIPT PROOF",
+                    fontWeight = FontWeight.Black,
+                    fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            },
+            text = {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(280.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (file.exists()) {
+                                AsyncImage(
+                                    model = file,
+                                    contentDescription = "Receipt Image proof",
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = androidx.compose.ui.layout.ContentScale.Fit
+                                )
+                            } else {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Icon(
+                                        imageVector = Icons.Default.Receipt,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                        modifier = Modifier.size(48.dp)
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        "Image file not found.",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    Text(
+                        text = "Merchant: ${transaction.merchant.ifEmpty { "Unassigned" }}",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "Amount: ${formatter(transaction.amount)}",
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { showReceiptViewer = false },
+                    modifier = Modifier.testTag("close_receipt_viewer_dialog_btn")
+                ) {
+                    Text("CLOSE", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(
+                        onClick = {
+                            // Unlink / Delete receipt path
+                            onUpdate(transaction.copy(receiptPath = ""))
+                            showReceiptViewer = false
+                            Toast.makeText(context, "Receipt unlinked from transaction.", Toast.LENGTH_SHORT).show()
+                        },
+                        colors = ButtonDefaults.textButtonColors(contentColor = ExpenseRose),
+                        modifier = Modifier.testTag("unlink_receipt_dialog_btn")
+                    ) {
+                        Text("UNLINK", fontWeight = FontWeight.Bold)
+                    }
+
+                    TextButton(
+                        onClick = {
+                            // Re-capture
+                            val hasPermission = androidx.core.content.ContextCompat.checkSelfPermission(
+                                context, android.Manifest.permission.CAMERA
+                            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                            if (hasPermission) {
+                                cameraLauncher.launch(null)
+                            } else {
+                                permissionLauncher.launch(android.Manifest.permission.CAMERA)
+                            }
+                            showReceiptViewer = false
+                        },
+                        modifier = Modifier.testTag("recapture_receipt_dialog_btn")
+                    ) {
+                        Text("RE-CAPTURE", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        )
     }
 }

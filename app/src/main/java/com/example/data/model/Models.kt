@@ -76,6 +76,17 @@ data class CountryConfig(
     }
 }
 
+data class RealTimeTaxBracket(
+    val incomeRange: String,
+    val rate: Double
+)
+
+data class RealTimeTaxData(
+    val country: String,
+    val standardVatRate: Double,
+    val brackets: List<RealTimeTaxBracket>
+)
+
 // --- Room Database Entities ---
 
 @Entity(tableName = "countries")
@@ -164,6 +175,7 @@ data class TransactionEntity(
     val splitCount: Int = 1, // support simple split expense math
     val userEmail: String = "", // sandbox SaaS partition/audit field
     val tags: String = "",
+    val receiptPath: String = "",
     val createdAt: Long = System.currentTimeMillis()
 )
 

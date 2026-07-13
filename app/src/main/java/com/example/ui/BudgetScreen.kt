@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -48,6 +49,7 @@ fun BudgetScreen(
     val inflow by viewModel.currentInflow.collectAsState()
     val outflow by viewModel.currentOutflow.collectAsState()
     val predictiveInsights by viewModel.predictiveInsights.collectAsState()
+    val budgetAlerts by viewModel.budgetAlerts.collectAsState()
     var showAllInsights by remember { mutableStateOf(false) }
     var showTemplateSelector by remember { mutableStateOf(false) }
     var showSaveTemplateDialog by remember { mutableStateOf(false) }
@@ -133,6 +135,62 @@ fun BudgetScreen(
                     )
                     IconButton(onClick = { viewModel.incrementMonth() }) {
                         Icon(imageVector = Icons.Default.ChevronRight, contentDescription = "Next")
+                    }
+                }
+            }
+
+            // --- ACTIVE SPENDING ALERTS ---
+            if (budgetAlerts.isNotEmpty()) {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.9f)
+                    ),
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(1.2.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .testTag("budget_screen_alerts_card")
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Warning,
+                                contentDescription = "Active Alerts",
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Text(
+                                text = "ACTIVE SPENDING WARNINGS",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                letterSpacing = 1.sp
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        budgetAlerts.forEach { alert ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.Top
+                            ) {
+                                Text(text = "🚨", fontSize = 14.sp)
+                                Column {
+                                    Text(
+                                        text = alert.message,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onErrorContainer
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
