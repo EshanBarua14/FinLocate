@@ -108,6 +108,9 @@ interface InsightDao {
     @Query("UPDATE insights SET isRead = 1 WHERE id = :id")
     suspend fun markAsRead(id: Long)
 
+    @Query("DELETE FROM insights WHERE isRead = 1 AND timestamp < :thresholdTime")
+    suspend fun pruneOldReadInsights(thresholdTime: Long)
+
     @Query("DELETE FROM insights")
     suspend fun clearInsights()
 }
@@ -188,6 +191,9 @@ interface ExchangeRateDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAllRates(rates: List<ExchangeRateEntity>)
+
+    @Query("DELETE FROM exchange_rates WHERE updatedAt < :thresholdTime AND currency NOT IN ('USD', 'EUR', 'GBP', 'JPY', 'CAD', 'AUD', 'INR', 'SGD', 'BDT')")
+    suspend fun pruneOldRates(thresholdTime: Long)
 }
 
 @Dao

@@ -8,6 +8,7 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -63,6 +64,9 @@ fun DashboardScreen(
     val isDark by viewModel.isDarkTheme.collectAsState()
     val showBackupReminder by viewModel.showBackupReminder.collectAsState()
     val txCountSinceLastExport by viewModel.txCountSinceLastExport.collectAsState()
+    val useBaseCurrency by viewModel.useBaseCurrency.collectAsState()
+    val displayCurrencySymbol by viewModel.displayCurrencySymbol.collectAsState()
+    val displayCurrency by viewModel.displayCurrency.collectAsState()
 
     LaunchedEffect(Unit) {
         viewModel.checkBackupReminder()
@@ -119,6 +123,58 @@ fun DashboardScreen(
                     )
                 },
                 actions = {
+                    // Ultra-Modern Minimalist Currency Switcher
+                    Box(
+                        modifier = Modifier
+                            .padding(end = 8.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(
+                                if (isDark) {
+                                    if (useBaseCurrency) FintechGreen.copy(alpha = 0.15f) else CardSlate
+                                } else {
+                                    if (useBaseCurrency) LightPrimary.copy(alpha = 0.15f) else Color.LightGray.copy(alpha = 0.2f)
+                                }
+                            )
+                            .border(
+                                width = 1.dp,
+                                color = if (useBaseCurrency) {
+                                    if (isDark) FintechGreen.copy(alpha = 0.4f) else LightPrimary.copy(alpha = 0.4f)
+                                } else {
+                                    if (isDark) BorderColor.copy(alpha = 0.3f) else Color.LightGray.copy(alpha = 0.5f)
+                                },
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            .clickable { viewModel.setUseBaseCurrency(!useBaseCurrency) }
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                            .testTag("currency_toggle_chip")
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Switch Currency",
+                                modifier = Modifier.size(12.dp),
+                                tint = if (useBaseCurrency) {
+                                    if (isDark) FintechGreen else LightPrimary
+                                } else {
+                                    if (isDark) TextMuted else LightTextMuted
+                                }
+                            )
+                            Text(
+                                text = if (useBaseCurrency) "USD ($)" else "LOCAL (${displayCurrency})",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (useBaseCurrency) {
+                                    if (isDark) FintechGreen else LightPrimary
+                                } else {
+                                    if (isDark) TextLight else LightText
+                                }
+                            )
+                        }
+                    }
+
                     IconButton(
                         onClick = { viewModel.setDarkTheme(!isDark) },
                         modifier = Modifier.testTag("dashboard_theme_toggle_btn")
@@ -246,14 +302,24 @@ fun DashboardScreen(
 
         // --- DATA PORTABILITY & SECURITY HUB ---
         item {
+            val hubGradientBrush = remember(isDark) {
+                androidx.compose.ui.graphics.Brush.linearGradient(
+                    colors = if (isDark) {
+                        listOf(CardSlate, CardSlateElevated.copy(alpha = 0.5f))
+                    } else {
+                        listOf(LightCard, LightBg)
+                    }
+                )
+            }
             Card(
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    containerColor = Color.Transparent
                 ),
                 shape = RoundedCornerShape(16.dp),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)),
+                border = BorderStroke(0.8.dp, if (isDark) BorderColor.copy(alpha = 0.3f) else Color.LightGray.copy(alpha = 0.5f)),
                 modifier = Modifier
                     .fillMaxWidth()
+                    .background(hubGradientBrush, RoundedCornerShape(16.dp))
                     .testTag("data_portability_hub_card")
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
@@ -695,13 +761,33 @@ fun DashboardScreen(
 
         // --- 1. COMMAND INDEX BANNER ---
         item {
+            val gradientBrush = remember(isDark) {
+                androidx.compose.ui.graphics.Brush.linearGradient(
+                    colors = if (isDark) {
+                        listOf(FintechGreen.copy(alpha = 0.22f), CardSlate)
+                    } else {
+                        listOf(LightPrimary.copy(alpha = 0.15f), LightCard)
+                    }
+                )
+            }
+            val borderBrush = remember(isDark) {
+                androidx.compose.ui.graphics.Brush.linearGradient(
+                    colors = if (isDark) {
+                        listOf(FintechGreen.copy(alpha = 0.35f), BorderColor.copy(alpha = 0.2f))
+                    } else {
+                        listOf(LightPrimary.copy(alpha = 0.4f), Color.LightGray.copy(alpha = 0.3f))
+                    }
+                )
+            }
             Card(
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                    containerColor = Color.Transparent
                 ),
                 shape = RoundedCornerShape(24.dp),
+                border = BorderStroke(1.dp, borderBrush),
                 modifier = Modifier
                     .fillMaxWidth()
+                    .background(gradientBrush, RoundedCornerShape(24.dp))
                     .testTag("command_banner_card")
             ) {
                 Column(
@@ -1045,30 +1131,42 @@ fun DashboardScreen(
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.15f)),
                         shape = RoundedCornerShape(16.dp),
                         modifier = Modifier
-                            .width(145.dp)
+                            .width(185.dp)
                             .testTag("summary_card_remaining_budget")
                     ) {
-                        Column(
+                        Row(
                             modifier = Modifier.padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.PieChart,
-                                contentDescription = "Remaining Budget",
-                                tint = MaterialTheme.colorScheme.secondary,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Text(
-                                text = "Remaining Budget",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Text(
-                                text = viewModel.formatCurrency(remainingBudget),
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = budgetColor
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.PieChart,
+                                    contentDescription = "Remaining Budget",
+                                    tint = MaterialTheme.colorScheme.secondary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Text(
+                                    text = "Remaining Budget",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1
+                                )
+                                Text(
+                                    text = viewModel.formatCurrency(remainingBudget),
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = budgetColor,
+                                    maxLines = 1
+                                )
+                            }
+                            BudgetProgressRing(
+                                spent = outflow,
+                                limit = totalBudgeted
                             )
                         }
                     }
@@ -1959,16 +2057,34 @@ fun DashboardScreen(
                                 "{\"category\": \"${catName.replace("\"", "\\\"")}\", \"Limit\": ${bud.amount}, \"Spent\": ${bud.spent}}"
                             }
 
+                            val calendarTmp = java.util.Calendar.getInstance()
+                            try {
+                                val monthParts = selectedMonth.split("-")
+                                if (monthParts.size == 2) {
+                                    calendarTmp.set(java.util.Calendar.YEAR, monthParts[0].toInt())
+                                    calendarTmp.set(java.util.Calendar.MONTH, monthParts[1].toInt() - 1)
+                                }
+                            } catch (e: Exception) {}
+                            calendarTmp.set(java.util.Calendar.DAY_OF_MONTH, 1)
+                            val firstDayOfWeek = calendarTmp.get(java.util.Calendar.DAY_OF_WEEK)
+                            val firstDayOffset = firstDayOfWeek - 1
+
+                            val dailySpentJson = (1..daysInMonth).joinToString(",") { day ->
+                                "{\"day\": $day, \"amount\": ${dayDailyTotals[day]}}"
+                            }
+
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(750.dp)
+                                    .height(980.dp)
                             ) {
                                 RechartsTrendWebView(
                                     trendDataJson = trendJson,
                                     budgetBarJson = budgetBarJson,
                                     monthToMonthDataJson = monthToMonthSpending,
-                                    currencySymbol = countryConfig.currencySymbol,
+                                    dailySpentDataJson = dailySpentJson,
+                                    startDayOffset = firstDayOffset,
+                                    currencySymbol = displayCurrencySymbol,
                                     isDark = isDark,
                                     modifier = Modifier.fillMaxSize()
                                 )
@@ -2890,10 +3006,55 @@ fun D3ChartWebView(
 }
 
 @Composable
+fun BudgetProgressRing(
+    spent: Double,
+    limit: Double,
+    modifier: Modifier = Modifier
+) {
+    val isDark = androidx.compose.foundation.isSystemInDarkTheme()
+    val ratio = if (limit > 0.0) (spent / limit).coerceIn(0.0, 1.0) else 0.0
+    val sweepAngle = (ratio * 360f).toFloat()
+
+    val trackColor = if (isDark) Color(0xFF1E293B) else Color(0xFFE2E8F0)
+    val progressColor = if (ratio > 0.9) ExpenseRose else FintechGreen
+
+    Box(
+        modifier = modifier.size(42.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+            drawCircle(
+                color = trackColor,
+                radius = size.minDimension / 2f - 2.dp.toPx(),
+                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3.5.dp.toPx())
+            )
+            drawArc(
+                color = progressColor,
+                startAngle = -90f,
+                sweepAngle = sweepAngle,
+                useCenter = false,
+                style = androidx.compose.ui.graphics.drawscope.Stroke(
+                    width = 3.5.dp.toPx(),
+                    cap = androidx.compose.ui.graphics.StrokeCap.Round
+                )
+            )
+        }
+        Text(
+            text = "${(ratio * 100).toInt()}%",
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Black,
+            color = if (isDark) Color.White else Color.Black
+        )
+    }
+}
+
+@Composable
 fun RechartsTrendWebView(
     trendDataJson: String,
     budgetBarJson: String,
     monthToMonthDataJson: String,
+    dailySpentDataJson: String,
+    startDayOffset: Int,
     currencySymbol: String,
     isDark: Boolean = true,
     modifier: Modifier = Modifier
@@ -2945,6 +3106,8 @@ fun RechartsTrendWebView(
                 const trendData = [ $trendDataJson ];
                 const budgetData = [ $budgetBarJson ];
                 const monthlyData = [ $monthToMonthDataJson ];
+                const dailySpentData = [ $dailySpentDataJson ];
+                const startDayOffset = $startDayOffset;
                 const isDark = ${isDark};
                 const currencySymbol = "$currencySymbol";
 
@@ -2972,8 +3135,56 @@ fun RechartsTrendWebView(
                 };
 
                 function App() {
+                    const totalLimit = budgetData.reduce((acc, b) => acc + (b.Limit || 0), 0);
+                    const totalSpent = budgetData.reduce((acc, b) => acc + (b.Spent || 0), 0);
+                    const remaining = totalLimit - totalSpent;
+                    const spentPercent = totalLimit > 0 ? Math.min(100, (totalSpent / totalLimit) * 100) : 0;
+
                     return (
                         <div className="flex flex-col gap-6 w-full pb-8">
+                            {/* Radial Budget Progress Ring */}
+                            {totalLimit > 0 && (
+                                <div className={"p-4 rounded-xl border flex items-center justify-between gap-4 " + (isDark ? "bg-slate-900/60 border-slate-800/80" : "bg-slate-50 border-slate-200")}>
+                                    <div className="flex-1">
+                                        <h3 className="text-[11px] font-bold tracking-wider text-emerald-500 uppercase mb-1">
+                                            🎯 TOTAL BUDGET REACH RING
+                                        </h3>
+                                        <p className="text-xs font-semibold opacity-85">
+                                            Spent <span className="font-bold text-rose-500">{currencySymbol}{totalSpent.toLocaleString(undefined, {maximumFractionDigits: 0})}</span> of {currencySymbol}{totalLimit.toLocaleString(undefined, {maximumFractionDigits: 0})} limit.
+                                        </p>
+                                        <div className="mt-2 text-[10px] opacity-70">
+                                            {remaining > 0 ? (
+                                                <span className="text-emerald-500 font-bold">✓ {currencySymbol}{remaining.toLocaleString(undefined, {maximumFractionDigits: 0})} safe</span>
+                                            ) : (
+                                                <span className="text-rose-500 font-bold">⚠️ Overrun by {currencySymbol}{Math.abs(remaining).toLocaleString(undefined, {maximumFractionDigits: 0})}</span>
+                                            )}
+                                        </div>
+                                    </div>
+                                    <div className="w-[100px] h-[100px] relative flex items-center justify-center">
+                                        <div className="absolute inset-0">
+                                            <ResponsiveContainer width="100%" height="100%">
+                                                <PieChart>
+                                                    <Pie
+                                                        data={[
+                                                            { name: 'Spent', value: totalSpent, fill: spentPercent > 90 ? '#F43F5E' : '#10B981' },
+                                                            { name: 'Remaining', value: Math.max(0, remaining), fill: isDark ? '#1E293B' : '#E2E8F0' }
+                                                        ]}
+                                                        cx="50%"
+                                                        cy="50%"
+                                                        innerRadius={30}
+                                                        outerRadius={40}
+                                                        startAngle={90}
+                                                        endAngle={-270}
+                                                        dataKey="value"
+                                                    />
+                                                </PieChart>
+                                            </ResponsiveContainer>
+                                        </div>
+                                        <span className="text-xs font-black z-10">{Math.round(spentPercent)}%</span>
+                                    </div>
+                                </div>
+                            )}
+
                             {/* 1. Area Spend Trend */}
                             <div className={"p-4 rounded-xl border " + (isDark ? "bg-slate-900/60 border-slate-800/80" : "bg-slate-50 border-slate-200")}>
                                 <div className="flex justify-between items-center mb-3">
@@ -3015,6 +3226,83 @@ fun RechartsTrendWebView(
                                             />
                                         </AreaChart>
                                     </ResponsiveContainer>
+                                </div>
+                            </div>
+
+                            {/* 1b. Monthly Spending Intensity Heatmap */}
+                            <div className={"p-4 rounded-xl border " + (isDark ? "bg-slate-900/60 border-slate-800/80" : "bg-slate-50 border-slate-200")}>
+                                <div className="flex justify-between items-center mb-3">
+                                    <h3 className="text-[11px] font-bold tracking-wider text-rose-500 uppercase flex items-center gap-1.5">
+                                        🔥 MONTHLY SPENDING INTENSITY HEATMAP
+                                    </h3>
+                                    <span className="text-[9px] opacity-60">Avg: {currencySymbol}{Math.round(dailySpentData.reduce((acc, d) => acc + d.amount, 0) / (dailySpentData.length || 1))}/day</span>
+                                </div>
+                                <div className="grid grid-cols-7 gap-1 text-center mb-2">
+                                    {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(h => (
+                                        <div key={h} className="text-[9px] font-bold opacity-50 py-1">{h}</div>
+                                    ))}
+                                    {(() => {
+                                        const cells = [];
+                                        const totalSpentSum = dailySpentData.reduce((acc, d) => acc + d.amount, 0);
+                                        const averageSpent = dailySpentData.length > 0 ? (totalSpentSum / dailySpentData.length) : 0;
+                                        
+                                        for (let i = 0; i < startDayOffset; i++) {
+                                            cells.push(<div key={"empty-" + i} className="aspect-square opacity-0" />);
+                                        }
+                                        dailySpentData.forEach((item, idx) => {
+                                            let bgColor = isDark ? "bg-slate-800/20 text-slate-600" : "bg-slate-100 text-slate-300";
+                                            let borderCol = isDark ? "border-slate-800/50" : "border-slate-200";
+                                            let textWeight = "font-normal";
+                                            
+                                            if (item.amount > 0) {
+                                                if (item.amount > averageSpent * 1.5) {
+                                                    bgColor = "bg-rose-500 text-white";
+                                                    textWeight = "font-bold";
+                                                } else if (item.amount >= averageSpent) {
+                                                    bgColor = "bg-amber-500 text-slate-950";
+                                                    textWeight = "font-bold";
+                                                } else {
+                                                    bgColor = "bg-emerald-500/50 text-emerald-950";
+                                                    textWeight = "font-semibold";
+                                                }
+                                            }
+                                            
+                                            cells.push(
+                                                <div 
+                                                    key={"day-" + item.day} 
+                                                    className={"aspect-square flex flex-col items-center justify-center rounded border " + borderCol + " " + bgColor + " transition-all relative group p-0.5 cursor-help"}
+                                                    title={"Day " + item.day + ": " + currencySymbol + item.amount.toFixed(2)}
+                                                >
+                                                    <span className={"text-[10px] " + textWeight}>{item.day}</span>
+                                                    {item.amount > 0 && (
+                                                        <span className="text-[6.5px] opacity-90 block truncate max-w-full font-mono">
+                                                            {currencySymbol}{Math.round(item.amount)}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            );
+                                        });
+                                        return cells;
+                                    })()}
+                                </div>
+                                
+                                <div className="flex gap-3 mt-3 justify-end text-[8.5px] font-semibold opacity-85">
+                                    <div className="flex items-center gap-1">
+                                        <span className="w-2.5 h-2.5 rounded bg-slate-800/20 border border-slate-700 inline-block"></span>
+                                        <span>No Spend</span>
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                        <span className="w-2.5 h-2.5 rounded bg-emerald-500/50 inline-block"></span>
+                                        <span>Below Avg</span>
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                        <span className="w-2.5 h-2.5 rounded bg-amber-500 inline-block"></span>
+                                        <span>Above Avg</span>
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                        <span className="w-2.5 h-2.5 rounded bg-rose-500 inline-block"></span>
+                                        <span>High Spikes</span>
+                                    </div>
                                 </div>
                             </div>
 

@@ -20,8 +20,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.CategoryEntity
 import com.example.data.model.TransactionEntity
-import com.example.ui.theme.AccentGold
-import com.example.ui.theme.FintechGreen
+import com.example.ui.theme.*
+import androidx.compose.ui.graphics.Color
 
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material.icons.filled.Lock
@@ -355,11 +355,35 @@ fun TaxScreen(
         item {
             val realTimeData by viewModel.realTimeTaxData.collectAsState()
             val realTimeLoading by viewModel.realTimeTaxLoading.collectAsState()
+            val isDark by viewModel.isDarkTheme.collectAsState()
+
+            val taxGradientBrush = remember(isDark) {
+                androidx.compose.ui.graphics.Brush.linearGradient(
+                    colors = if (isDark) {
+                        listOf(FintechGreen.copy(alpha = 0.15f), CardSlate)
+                    } else {
+                        listOf(LightPrimary.copy(alpha = 0.1f), LightCard)
+                    }
+                )
+            }
+            val taxBorderBrush = remember(isDark) {
+                androidx.compose.ui.graphics.Brush.linearGradient(
+                    colors = if (isDark) {
+                        listOf(FintechGreen.copy(alpha = 0.3f), BorderColor.copy(alpha = 0.15f))
+                    } else {
+                        listOf(LightPrimary.copy(alpha = 0.35f), Color.LightGray.copy(alpha = 0.25f))
+                    }
+                )
+            }
 
             Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)),
+                colors = CardDefaults.cardColors(containerColor = Color.Transparent),
                 shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.fillMaxWidth().testTag("real_time_tax_card")
+                border = BorderStroke(0.8.dp, taxBorderBrush),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(taxGradientBrush, RoundedCornerShape(16.dp))
+                    .testTag("real_time_tax_card")
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(

@@ -399,6 +399,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         prefs.edit().putBoolean("is_dark_theme", value).apply()
     }
 
+    // --- Global Multi-Currency Toggle (Local vs USD Base) ---
+    private val _useBaseCurrency = MutableStateFlow(prefs.getBoolean("use_base_currency", false))
+    val useBaseCurrency: StateFlow<Boolean> = _useBaseCurrency.asStateFlow()
+
+    fun setUseBaseCurrency(value: Boolean) {
+        _useBaseCurrency.value = value
+        prefs.edit().putBoolean("use_base_currency", value).apply()
+    }
+
     // --- SQLite Manual Export & Backup Period Reminder ---
     private val _showBackupReminder = MutableStateFlow(false)
     val showBackupReminder: StateFlow<Boolean> = _showBackupReminder.asStateFlow()
@@ -696,6 +705,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         .map { countryConfigProvider.loadConfigForCountry(it.selectedCountry) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), CountryConfig.USA)
 
+    val displayCurrency: StateFlow<String> = combine(useBaseCurrency, activeCountryConfig) { useBase, config ->
+        if (useBase) "USD" else config.currency
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "USD")
+
+    val displayCurrencySymbol: StateFlow<String> = combine(useBaseCurrency, activeCountryConfig) { useBase, config ->
+        if (useBase) "$" else config.currencySymbol
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "$")
+
     // --- Real-time Tax Bracket Flow ---
     private val _realTimeTaxData = MutableStateFlow<RealTimeTaxData?>(null)
     val realTimeTaxData: StateFlow<RealTimeTaxData?> = _realTimeTaxData.asStateFlow()
@@ -825,6 +842,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             // Automatically execute the recurring transaction scheduler on startup
             runRecurringScheduler()
+
+            // Run database background pruning and optimization on boot
+            try {
+                com.example.data.service.DatabasePrunerUtility.pruneAndOptimize(application, db)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
+        // Collect and check for upcoming recurring transaction warnings (3-day window)
+        viewModelScope.launch {
+            allRecurring.collect { recurringList ->
+                checkRecurringWarnings(recurringList)
+            }
         }
 
         // Real-time currency background fetch from reliable api open.er-api.com with local SQLite caching (24-hour interval)
@@ -979,17 +1010,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // --- State Calculations ---
-    val totalBalance: StateFlow<Double> = combine(accounts, activeCountryConfig, exchangeRates) { accList, country, rates ->
+    val totalBalance: StateFlow<Double> = combine(accounts, displayCurrency, exchangeRates) { accList, targetCurrency, rates ->
         accList.sumOf { acc ->
-            convertCurrency(acc.balance, acc.currency, country.currency)
+            convertCurrency(acc.balance, acc.currency, targetCurrency)
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
-    val netWorthSummary: StateFlow<NetWorthSummary> = combine(accounts, activeCountryConfig, exchangeRates) { accList, country, rates ->
+    val netWorthSummary: StateFlow<NetWorthSummary> = combine(accounts, displayCurrency, exchangeRates) { accList, targetCurrency, rates ->
         var manualSum = 0.0
         var syncedSum = 0.0
         accList.forEach { acc ->
-            val converted = convertCurrency(acc.balance, acc.currency, country.currency)
+            val converted = convertCurrency(acc.balance, acc.currency, targetCurrency)
             val isManual = acc.type == "CASH" || !acc.isSyncEnabled
             if (isManual) {
                 manualSum += converted
@@ -1004,19 +1035,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), NetWorthSummary())
 
-    val currentInflow: StateFlow<Double> = combine(filteredTransactions, accounts, activeCountryConfig, exchangeRates) { txList, accList, country, rates ->
+    val currentInflow: StateFlow<Double> = combine(filteredTransactions, accounts, displayCurrency, exchangeRates) { txList, accList, targetCurrency, rates ->
         txList.filter { it.type == "INCOME" }.sumOf { tx ->
             val acc = accList.find { it.id == tx.accountId }
             val txCurrency = acc?.currency ?: "USD"
-            convertCurrency(tx.amount, txCurrency, country.currency)
+            convertCurrency(tx.amount, txCurrency, targetCurrency)
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
-    val currentOutflow: StateFlow<Double> = combine(filteredTransactions, accounts, activeCountryConfig, exchangeRates) { txList, accList, country, rates ->
+    val currentOutflow: StateFlow<Double> = combine(filteredTransactions, accounts, displayCurrency, exchangeRates) { txList, accList, targetCurrency, rates ->
         txList.filter { it.type == "EXPENSE" }.sumOf { tx ->
             val acc = accList.find { it.id == tx.accountId }
             val txCurrency = acc?.currency ?: "USD"
-            convertCurrency(tx.amount, txCurrency, country.currency)
+            convertCurrency(tx.amount, txCurrency, targetCurrency)
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
@@ -1506,49 +1537,79 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
 
-                for (idx in 0 until lines.size) {
+                // Smart column index mapping fallback
+                var dateIdx = 0
+                var merchantIdx = 1
+                var amountIdx = 2
+                var typeIdx = 3
+                var categoryIdx = 4
+                var notesIdx = 5
+                var tagsIdx = 6
+
+                var startLineIdx = 0
+                val headerLine = lines.firstOrNull { it.trim().isNotEmpty() }
+                if (headerLine != null) {
+                    val tokens = headerLine.split(",").map { it.trim().lowercase().removeSurrounding("\"") }
+                    val hasKeywords = tokens.any { 
+                        it.contains("date") || it.contains("amount") || it.contains("merchant") || it.contains("payee") || it.contains("type") || it.contains("category") || it.contains("notes") || it.contains("description")
+                    }
+                    if (hasKeywords) {
+                        tokens.forEachIndexed { index, col ->
+                            if (col.contains("date")) dateIdx = index
+                            else if (col.contains("merchant") || col.contains("payee") || col.contains("description") || col.contains("vendor") || col.contains("title")) merchantIdx = index
+                            else if (col.contains("amount") || col.contains("value") || col.contains("sum") || col.contains("price") || col.contains("total")) amountIdx = index
+                            else if (col.contains("type")) typeIdx = index
+                            else if (col.contains("category")) categoryIdx = index
+                            else if (col.contains("notes") || col.contains("memo") || col.contains("comment")) notesIdx = index
+                            else if (col.contains("tags") || col.contains("tag")) tagsIdx = index
+                        }
+                        startLineIdx = lines.indexOf(headerLine) + 1
+                    }
+                }
+
+                for (idx in startLineIdx until lines.size) {
                     val line = lines[idx].trim()
                     if (line.isEmpty()) continue
-                    
-                    // Skip header if it contains header keywords
-                    if (idx == 0 && (line.lowercase().contains("date") || line.lowercase().contains("amount") || line.lowercase().contains("merchant"))) {
-                        continue
-                    }
 
                     // Hand-crafted CSV split which handles quoted values safely if any, or standard simple commas
                     val tokens = line.split(",").map { it.trim().removeSurrounding("\"") }
-                    if (tokens.size < 3) continue
+                    if (tokens.size <= amountIdx) continue
 
-                    // Parse Date (Column 0)
+                    // Parse Date (Dynamic Column)
                     val dateParsed = try {
-                        sdf.parse(tokens[0])?.time ?: System.currentTimeMillis()
+                        val dStr = tokens.getOrNull(dateIdx) ?: ""
+                        sdf.parse(dStr)?.time ?: System.currentTimeMillis()
                     } catch (e: Exception) {
                         System.currentTimeMillis()
                     }
 
-                    // Column 1: Merchant
-                    val merchantParsed = tokens.getOrNull(1)?.ifEmpty { "CSV Import" } ?: "CSV Import"
+                    // Dynamic Column: Merchant
+                    val merchantParsed = tokens.getOrNull(merchantIdx)?.ifEmpty { "Bank Export" } ?: "Bank Export"
 
-                    // Column 2: Amount
-                    val amountParsed = tokens.getOrNull(2)?.toDoubleOrNull() ?: 0.0
+                    // Dynamic Column: Amount
+                    val cleanAmountStr = (tokens.getOrNull(amountIdx) ?: "0.0").replace("[^0-9.]".toRegex(), "")
+                    val amountParsed = cleanAmountStr.toDoubleOrNull() ?: 0.0
 
-                    // Column 3: Type (INCOME, EXPENSE, TRANSFER)
-                    val typeParsed = tokens.getOrNull(3)?.uppercase()?.ifEmpty { "EXPENSE" } ?: "EXPENSE"
+                    // Dynamic Column: Type (INCOME, EXPENSE, TRANSFER)
+                    var typeParsed = tokens.getOrNull(typeIdx)?.uppercase()?.ifEmpty { "EXPENSE" } ?: "EXPENSE"
+                    if (typeParsed != "EXPENSE" && typeParsed != "INCOME" && typeParsed != "TRANSFER") {
+                        typeParsed = "EXPENSE"
+                    }
 
-                    // Column 4: Category Name
-                    val categoryName = tokens.getOrNull(4) ?: ""
+                    // Dynamic Column: Category Name
+                    val categoryName = tokens.getOrNull(categoryIdx) ?: ""
 
-                    // Column 5: Notes
-                    val notesParsed = tokens.getOrNull(5)?.ifEmpty { "Imported transaction" } ?: "Imported transaction"
+                    // Dynamic Column: Notes
+                    val notesParsed = tokens.getOrNull(notesIdx)?.ifEmpty { "Bank CSV Import" } ?: "Bank CSV Import"
 
-                    // Column 6: Tags
-                    val tagsParsed = tokens.getOrNull(6) ?: ""
+                    // Dynamic Column: Tags
+                    val tagsParsed = tokens.getOrNull(tagsIdx) ?: ""
 
-                    // Lookup matching category id
+                    // Lookup matching category id or auto-suggest
                     val matchedCategory = if (categoryName.isNotEmpty()) {
                         dbCategories.find { it.name.equals(categoryName, ignoreCase = true) }?.id ?: defaultCategory
                     } else {
-                        defaultCategory
+                        suggestCategoryForMerchant(merchantParsed)
                     }
 
                     if (amountParsed > 0) {
@@ -1566,7 +1627,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         importedCount++
                     }
                 }
-                _notifications.tryEmit("Successfully imported $importedCount transactions from CSV!")
+                _notifications.tryEmit("Successfully imported $importedCount transactions from bank CSV!")
                 incrementTxCountSinceLastExport()
             } catch (e: Exception) {
                 _notifications.tryEmit("Failed to import CSV: ${e.message}")
@@ -1620,6 +1681,77 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val msgs = com.example.data.service.RecurringTransactionScheduler.checkAndProcessRecurring(repository)
             msgs.forEach { postNotification(it) }
         }
+    }
+
+    private val notifiedRecurringKeys = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+
+    fun checkRecurringWarnings(recurringList: List<RecurringTransactionEntity>) {
+        val currentTime = System.currentTimeMillis()
+        val threeDaysMs = 3L * 24 * 60 * 60 * 1000
+        
+        recurringList.forEach { schedule ->
+            if (schedule.isActive) {
+                val timeLeft = schedule.nextExecutionTimestamp - currentTime
+                // Warn if scheduled date is within the next 3 days
+                if (timeLeft in 0L..threeDaysMs) {
+                    val daysLeft = Math.ceil(timeLeft.toDouble() / (24 * 60 * 60 * 1000)).toInt()
+                    val key = "${schedule.id}_${schedule.nextExecutionTimestamp}"
+                    if (!notifiedRecurringKeys.contains(key)) {
+                        notifiedRecurringKeys.add(key)
+                        val typeLabel = if (schedule.type == "EXPENSE") "payment" else "transaction"
+                        postNotification("📅 Upcoming Scheduled Transaction Warning: Your recurring $typeLabel for '${schedule.merchant}' of ${formatCurrency(schedule.amount)} is scheduled in $daysLeft days on ${SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date(schedule.nextExecutionTimestamp))}.")
+                    }
+                }
+            }
+        }
+    }
+
+    fun suggestCategoryForMerchant(merchantName: String): Long {
+        val txs = allTransactions.value
+        val matchedTxs = txs.filter { it.merchant.contains(merchantName, ignoreCase = true) || merchantName.contains(it.merchant, ignoreCase = true) }
+        if (matchedTxs.isNotEmpty()) {
+            val mostFrequentCat = matchedTxs.groupBy { it.categoryId }
+                .maxByOrNull { it.value.size }?.key
+            if (mostFrequentCat != null) {
+                return mostFrequentCat
+            }
+        }
+        
+        val cats = categories.value
+        val merchantLower = merchantName.lowercase()
+        
+        val keywordMappings = mapOf(
+            "starbucks" to listOf("Food", "Cafe", "Dining", "Coffee", "Restaurants"),
+            "mcdonald" to listOf("Food", "Dining", "Restaurants", "Fast Food"),
+            "uber" to listOf("Transport", "Travel", "Cab", "Taxi", "Ride"),
+            "lyft" to listOf("Transport", "Travel", "Cab", "Taxi", "Ride"),
+            "walmart" to listOf("Groceries", "Shopping", "Supermarket"),
+            "target" to listOf("Shopping", "Groceries", "Retail"),
+            "amazon" to listOf("Shopping", "Online", "Retail"),
+            "netflix" to listOf("Entertainment", "Subscriptions", "Media"),
+            "spotify" to listOf("Entertainment", "Subscriptions", "Media"),
+            "steam" to listOf("Entertainment", "Gaming"),
+            "chevron" to listOf("Fuel", "Gas", "Transport", "Automobile"),
+            "shell" to listOf("Fuel", "Gas", "Transport", "Automobile"),
+            "pharmacy" to listOf("Health", "Medical", "Medicine"),
+            "hospital" to listOf("Health", "Medical"),
+            "rent" to listOf("Housing", "Rent", "Utilities"),
+            "electric" to listOf("Utilities", "Housing", "Bills")
+        )
+        
+        for ((keyword, catKeywords) in keywordMappings) {
+            if (merchantLower.contains(keyword)) {
+                val matchedCat = cats.find { cat -> 
+                    catKeywords.any { kw -> cat.name.contains(kw, ignoreCase = true) }
+                }
+                if (matchedCat != null) {
+                    return matchedCat.id
+                }
+            }
+        }
+        
+        val fallbackCat = cats.find { it.name.contains("Miscellaneous", ignoreCase = true) || it.name.contains("Shopping", ignoreCase = true) }
+        return fallbackCat?.id ?: cats.firstOrNull()?.id ?: 1L
     }
 
     fun insertRecurringSchedule(recurring: RecurringTransactionEntity) {
@@ -1753,9 +1885,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // Dynamic Currency Formatter based on country setting
+    // Dynamic Currency Formatter based on country setting or global currency toggle
     fun formatCurrency(amount: Double): String {
         val config = activeCountryConfig.value
+        if (useBaseCurrency.value) {
+            val formatStyle = java.text.NumberFormat.getCurrencyInstance(Locale.US)
+            return formatStyle.format(amount)
+        }
         return com.example.data.service.CurrencyFormatterHelper.format(amount, config)
     }
 

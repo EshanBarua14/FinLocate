@@ -759,10 +759,8 @@ fun DetailedFormLayout(
                                     val finalAmount = extractedAmountStr.toDoubleOrNull() ?: 0.0
                                     val finalCatId = if (extractedCategoryId != 0L && categories.any { it.id == extractedCategoryId }) {
                                         extractedCategoryId
-                                    } else if (selectedCategoryId != 0L) {
-                                        selectedCategoryId
                                     } else {
-                                        (categories.find { it.name.contains("Shopping", true) || it.name.contains("Miscellaneous", true) }?.id ?: categories.firstOrNull()?.id ?: 1L)
+                                        viewModel.suggestCategoryForMerchant(extractedMerchant)
                                     }
                                     val finalAccId = if (selectedAccountId != 0L) selectedAccountId else (accounts.firstOrNull()?.id ?: 1L)
                                     
