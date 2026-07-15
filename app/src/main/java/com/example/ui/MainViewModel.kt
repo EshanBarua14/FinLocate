@@ -546,7 +546,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // --- Interactive Notifications Flow ---
     private val _notifications = MutableSharedFlow<String>(extraBufferCapacity = 64)
     val notifications = _notifications.asSharedFlow()
-
+    
+    @android.annotation.SuppressLint("MissingPermission")
     private fun showSystemNotification(title: String, message: String) {
         val context = getApplication<Application>()
         val channelId = "budget_alerts_channel"
@@ -853,7 +854,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         // Collect and check for upcoming recurring transaction warnings (3-day window)
         viewModelScope.launch {
-            allRecurring.collect { recurringList ->
+            repository.allRecurring.collect { recurringList ->
                 checkRecurringWarnings(recurringList)
             }
         }
@@ -1384,6 +1385,122 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun autoCategorizeByDescriptionAndMerchant(notes: String, merchant: String, defaultCategoryId: Long, type: String): Long {
+        if (type == "TRANSFER") return 0L
+        val notesLower = notes.lowercase(Locale.US)
+        val merchantLower = merchant.lowercase(Locale.US)
+        val combined = "$notesLower $merchantLower"
+        val cats = categories.value
+
+        val keywordToCategoryName = mapOf(
+            "grocery" to "Food & Dining",
+            "groceries" to "Food & Dining",
+            "supermarket" to "Food & Dining",
+            "food" to "Food & Dining",
+            "dining" to "Food & Dining",
+            "restaurant" to "Food & Dining",
+            "restaurants" to "Food & Dining",
+            "cafe" to "Food & Dining",
+            "coffee" to "Food & Dining",
+            "starbucks" to "Food & Dining",
+            "eat" to "Food & Dining",
+            "meal" to "Food & Dining",
+            
+            "utility" to "Rent & Bills",
+            "utilities" to "Rent & Bills",
+            "electric" to "Rent & Bills",
+            "electricity" to "Rent & Bills",
+            "water" to "Rent & Bills",
+            "gas" to "Rent & Bills",
+            "power" to "Rent & Bills",
+            "internet" to "Rent & Bills",
+            "cable" to "Rent & Bills",
+            "bill" to "Rent & Bills",
+            "bills" to "Rent & Bills",
+            "rent" to "Rent & Bills",
+            "apartment" to "Rent & Bills",
+            
+            "transport" to "Transport",
+            "bus" to "Transport",
+            "taxi" to "Transport",
+            "uber" to "Transport",
+            "lyft" to "Transport",
+            "fuel" to "Transport",
+            "gasoline" to "Transport",
+            "metro" to "Transport",
+            "train" to "Transport",
+            "car" to "Transport",
+            
+            "movie" to "Entertainment",
+            "netflix" to "Entertainment",
+            "spotify" to "Entertainment",
+            "game" to "Entertainment",
+            "gaming" to "Entertainment",
+            "steam" to "Entertainment",
+            "disney" to "Entertainment",
+            "hulu" to "Entertainment",
+            "theater" to "Entertainment",
+            
+            "tax" to "Taxes & Duties",
+            "duty" to "Taxes & Duties",
+            "taxes" to "Taxes & Duties",
+            "irs" to "Taxes & Duties",
+            
+            "salary" to "Salary",
+            "wage" to "Salary",
+            "paycheck" to "Salary",
+            "income" to "Salary",
+            
+            "freelance" to "Freelance",
+            "contract" to "Freelance",
+            "consulting" to "Freelance",
+            "gig" to "Freelance",
+            
+            "invest" to "Savings & Investments",
+            "investment" to "Savings & Investments",
+            "savings" to "Savings & Investments",
+            "stock" to "Savings & Investments",
+            "shares" to "Savings & Investments",
+            "mutual fund" to "Savings & Investments",
+            
+            "shopping" to "Shopping",
+            "clothes" to "Shopping",
+            "amazon" to "Shopping",
+            "mall" to "Shopping",
+            "apparel" to "Shopping",
+            "electronics" to "Shopping",
+            "target" to "Shopping",
+            "walmart" to "Shopping"
+        )
+
+        for ((keyword, targetCatName) in keywordToCategoryName) {
+            if (combined.contains(keyword)) {
+                val literalMatch = cats.find { it.name.equals(keyword, ignoreCase = true) }
+                if (literalMatch != null) {
+                    return literalMatch.id
+                }
+                val foundCat = cats.find { it.name.contains(targetCatName, ignoreCase = true) || targetCatName.contains(it.name, ignoreCase = true) }
+                if (foundCat != null) {
+                    return foundCat.id
+                }
+            }
+        }
+
+        val matchedCat = cats.find { cat ->
+            cat.name.lowercase(Locale.US).contains(notesLower) || 
+            notesLower.contains(cat.name.lowercase(Locale.US)) ||
+            cat.subcategories.split(",").any { sub ->
+                val trimmedSub = sub.trim().lowercase(Locale.US)
+                trimmedSub.isNotEmpty() && (notesLower.contains(trimmedSub) || trimmedSub.contains(notesLower))
+            }
+        }
+        if (matchedCat != null) {
+            return matchedCat.id
+        }
+
+        return defaultCategoryId
+    }
+
     fun addTransaction(
         amount: Double,
         type: String,
@@ -1402,10 +1519,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         receiptPath: String = ""
     ) {
         viewModelScope.launch {
+            val finalCategoryId = autoCategorizeByDescriptionAndMerchant(notes, merchant, categoryId, type)
             val tx = TransactionEntity(
                 amount = amount,
                 type = type,
-                categoryId = categoryId,
+                categoryId = finalCategoryId,
                 accountId = accountId,
                 toAccountId = toAccountId,
                 timestamp = customTimestamp ?: System.currentTimeMillis(),
