@@ -23,6 +23,8 @@ import java.util.Date
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
+import androidx.compose.material.icons.automirrored.filled.TrendingDown
 import androidx.compose.material.icons.outlined.Analytics
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.*
@@ -59,6 +61,7 @@ fun DashboardScreen(
 ) {
     val dashboardContext = androidx.compose.ui.platform.LocalContext.current
     var showQuickAddDialog by remember { mutableStateOf(false) }
+    var showOneTapModal by remember { mutableStateOf(false) }
     var showControlCenter by remember { mutableStateOf(false) }
     var showYearlyReport by remember { mutableStateOf(false) }
     val isDark by viewModel.isDarkTheme.collectAsState()
@@ -211,6 +214,26 @@ fun DashboardScreen(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        item {
+            OneTapShortcutCard(
+                onOpenModal = { showOneTapModal = true }
+            )
+        }
+
+        item {
+            D3CalendarHeatmapCard(
+                viewModel = viewModel,
+                isDark = isDark
+            )
+        }
+
+        item {
+            DatabasePruneCard(
+                viewModel = viewModel,
+                isDark = isDark
+            )
+        }
+
         if (showBackupReminder) {
             item {
                 Card(
@@ -918,7 +941,7 @@ fun DashboardScreen(
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
-                                imageVector = Icons.Default.TrendingUp,
+                                imageVector = Icons.AutoMirrored.Filled.TrendingUp,
                                 contentDescription = "Inflow",
                                 tint = FintechGreen,
                                 modifier = Modifier.size(24.dp)
@@ -942,7 +965,7 @@ fun DashboardScreen(
 
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
-                                imageVector = Icons.Default.TrendingDown,
+                                imageVector = Icons.AutoMirrored.Filled.TrendingDown,
                                 contentDescription = "Outflow",
                                 tint = ExpenseRose,
                                 modifier = Modifier.size(24.dp)
@@ -1062,7 +1085,7 @@ fun DashboardScreen(
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Default.TrendingDown,
+                                imageVector = Icons.AutoMirrored.Filled.TrendingDown,
                                 contentDescription = "Total Expenses",
                                 tint = ExpenseRose,
                                 modifier = Modifier.size(20.dp)
@@ -2240,6 +2263,60 @@ fun DashboardScreen(
         item {
             DebtPayoffTimelineComponent(viewModel = viewModel)
         }
+        item {
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+        item {
+            FinancialHealthScoreComponent(viewModel = viewModel)
+        }
+        item {
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+        item {
+            ComparativeSpendingBarChartComponent(viewModel = viewModel)
+        }
+        item {
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+        item {
+            InteractiveSunburstChartComponent(viewModel = viewModel)
+        }
+        item {
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+        item {
+            DedicatedSavingsGoalsTrackerComponent(viewModel = viewModel)
+        }
+        item {
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+        item {
+            FutureSavingsCalculatorComponent(viewModel = viewModel)
+        }
+        item {
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+        item {
+            MonthlyTransactionsCalendarComponent(viewModel = viewModel)
+        }
+        item {
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+        item {
+            InteractiveAssetDistributionChartComponent(viewModel = viewModel)
+        }
+        item {
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+        item {
+            EmergencyFundOptimizerComponent(viewModel = viewModel)
+        }
+        item {
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+        item {
+            SubscriptionIntelligenceComponent(viewModel = viewModel)
+        }
     }
     }
 
@@ -2247,6 +2324,13 @@ fun DashboardScreen(
         QuickAddExpenseDialog(
             viewModel = viewModel,
             onDismiss = { showQuickAddDialog = false }
+        )
+    }
+
+    if (showOneTapModal) {
+        OneTapSimpleExpenseModal(
+            viewModel = viewModel,
+            onDismiss = { showOneTapModal = false }
         )
     }
 
@@ -4074,3 +4158,574 @@ fun AnnualTrendChart(
         }
     }
 }
+
+@Composable
+fun OneTapShortcutCard(
+    onOpenModal: () -> Unit
+) {
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
+        ),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onOpenModal() }
+            .testTag("one_tap_shortcut_card")
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .background(MaterialTheme.colorScheme.primary, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Bolt,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "⚡ ONE-TAP EXPENSE LOGGING",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    letterSpacing = 1.sp
+                )
+                Text(
+                    text = "Tap to instantly record daily expenses using smart minimal presets.",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                )
+            }
+            Icon(
+                imageVector = Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(24.dp)
+            )
+        }
+    }
+}
+
+@Composable
+fun OneTapSimpleExpenseModal(
+    viewModel: MainViewModel,
+    onDismiss: () -> Unit
+) {
+    val categories by viewModel.categories.collectAsState()
+    val accounts by viewModel.accounts.collectAsState()
+    val config by viewModel.activeCountryConfig.collectAsState()
+    
+    val expenseCats = categories.filter { !it.isIncome }
+    val defaultAccount = accounts.firstOrNull()
+    
+    var amountText by remember { mutableStateOf("") }
+    var selectedCategoryId by remember { mutableStateOf(expenseCats.firstOrNull()?.id ?: 0L) }
+    
+    val context = androidx.compose.ui.platform.LocalContext.current
+    
+    val presets = listOf(
+        Triple("☕ Coffee", 5.0, "Food"),
+        Triple("🍔 Lunch", 15.0, "Food"),
+        Triple("🚌 Transit", 10.0, "Transport"),
+        Triple("🛍️ Shopping", 40.0, "Shopping")
+    )
+    
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(
+                    imageVector = Icons.Default.Bolt,
+                    contentDescription = null,
+                    tint = FintechGreen,
+                    modifier = Modifier.size(24.dp)
+                )
+                Text("One-Tap Quick Log", fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleMedium)
+            }
+        },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = "Tap a preset to log instantly or enter an amount below.",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                )
+                
+                Text("QUICK-TAP PRESETS (INSTANT LOG)", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        presets.take(2).forEach { (label, amt, catName) ->
+                            val targetCat = expenseCats.find { it.name.contains(catName, ignoreCase = true) } ?: expenseCats.firstOrNull()
+                            val catId = targetCat?.id ?: 0L
+                            FilterChip(
+                                selected = false,
+                                onClick = {
+                                    if (defaultAccount == null || catId == 0L) {
+                                        android.widget.Toast.makeText(context, "No accounts configured.", android.widget.Toast.LENGTH_SHORT).show()
+                                        return@FilterChip
+                                    }
+                                    viewModel.addTransaction(
+                                        amount = amt,
+                                        type = "EXPENSE",
+                                        categoryId = catId,
+                                        accountId = defaultAccount.id,
+                                        merchant = label.substring(2).trim(),
+                                        notes = "Instant One-Tap Log ($label)"
+                                    )
+                                    android.widget.Toast.makeText(context, "Logged $label for $amt!", android.widget.Toast.LENGTH_SHORT).show()
+                                    onDismiss()
+                                },
+                                label = { Text("$label: ${config.currencySymbol}${amt.toInt()}", fontWeight = FontWeight.Bold) },
+                                modifier = Modifier.weight(1f).testTag("preset_chip_${label.lowercase().replace(" ", "_")}")
+                            )
+                        }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        presets.drop(2).forEach { (label, amt, catName) ->
+                            val targetCat = expenseCats.find { it.name.contains(catName, ignoreCase = true) } ?: expenseCats.firstOrNull()
+                            val catId = targetCat?.id ?: 0L
+                            FilterChip(
+                                selected = false,
+                                onClick = {
+                                    if (defaultAccount == null || catId == 0L) {
+                                        android.widget.Toast.makeText(context, "No accounts configured.", android.widget.Toast.LENGTH_SHORT).show()
+                                        return@FilterChip
+                                    }
+                                    viewModel.addTransaction(
+                                        amount = amt,
+                                        type = "EXPENSE",
+                                        categoryId = catId,
+                                        accountId = defaultAccount.id,
+                                        merchant = label.substring(2).trim(),
+                                        notes = "Instant One-Tap Log ($label)"
+                                    )
+                                    android.widget.Toast.makeText(context, "Logged $label for $amt!", android.widget.Toast.LENGTH_SHORT).show()
+                                    onDismiss()
+                                },
+                                label = { Text("$label: ${config.currencySymbol}${amt.toInt()}", fontWeight = FontWeight.Bold) },
+                                modifier = Modifier.weight(1f).testTag("preset_chip_${label.lowercase().replace(" ", "_")}")
+                            )
+                        }
+                    }
+                }
+                
+                HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                
+                Text("MANUAL MINIMAL LOG", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                
+                OutlinedTextField(
+                    value = amountText,
+                    onValueChange = { amountText = it },
+                    label = { Text("Amount (${config.currency})") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().testTag("one_tap_amount_input")
+                )
+                
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Select Category", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        items(expenseCats) { cat ->
+                            FilterChip(
+                                selected = selectedCategoryId == cat.id,
+                                onClick = { selectedCategoryId = cat.id },
+                                label = { Text(cat.name) },
+                                modifier = Modifier.testTag("one_tap_cat_chip_${cat.id}")
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val amt = amountText.toDoubleOrNull() ?: 0.0
+                    if (amt <= 0.0 || defaultAccount == null || selectedCategoryId == 0L) {
+                        android.widget.Toast.makeText(context, "Please enter a valid amount and select category.", android.widget.Toast.LENGTH_SHORT).show()
+                        return@Button
+                    }
+                    viewModel.addTransaction(
+                        amount = amt,
+                        type = "EXPENSE",
+                        categoryId = selectedCategoryId,
+                        accountId = defaultAccount.id,
+                        merchant = "Manual Quick Log",
+                        notes = "Form logged quick expense"
+                    )
+                    android.widget.Toast.makeText(context, "Logged expense of $amt ${config.currency}!", android.widget.Toast.LENGTH_SHORT).show()
+                    onDismiss()
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = FintechGreen),
+                modifier = Modifier.testTag("one_tap_log_confirm_btn")
+            ) {
+                Text("LOG EXPENSE", fontWeight = FontWeight.Bold, color = Color.White)
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.testTag("one_tap_log_cancel_btn")
+            ) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+@Composable
+fun D3CalendarHeatmapCard(
+    viewModel: MainViewModel,
+    isDark: Boolean
+) {
+    val rawTransactions by viewModel.filteredTransactions.collectAsState()
+    
+    val dailySpent = remember(rawTransactions) {
+        val calendar = Calendar.getInstance()
+        rawTransactions
+            .filter { it.type == "EXPENSE" }
+            .groupBy {
+                calendar.timeInMillis = it.timestamp
+                calendar.get(Calendar.DAY_OF_MONTH)
+            }
+            .mapValues { (_, txList) -> txList.sumOf { it.amount } }
+    }
+    
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(0.8.dp, if (isDark) BorderColor.copy(alpha = 0.3f) else Color.LightGray.copy(alpha = 0.5f)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("d3_spending_heatmap_card")
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.CalendarMonth,
+                    contentDescription = null,
+                    tint = FintechGreen,
+                    modifier = Modifier.size(24.dp)
+                )
+                Text(
+                    text = "D3 CALENDAR HEATMAP",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+            Text(
+                text = "Visualize high-spending days throughout the current month in real time.",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+            )
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            val calendar = Calendar.getInstance()
+            val daysInMonth = calendar.getActualMaximum(Calendar.DAY_OF_MONTH)
+            calendar.set(Calendar.DAY_OF_MONTH, 1)
+            val firstDayOfWeek = calendar.get(Calendar.DAY_OF_WEEK) - 1
+            
+            val jsonDailySpent = dailySpent.entries.joinToString(prefix = "{", postfix = "}") { 
+                "\"${it.key}\": ${it.value}" 
+            }
+            
+            val htmlData = """
+                <!DOCTYPE html>
+                <html>
+                <head>
+                  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+                  <style>
+                    body {
+                      margin: 0;
+                      padding: 0;
+                      background-color: transparent;
+                      color: ${if (isDark) "#ffffff" else "#121212"};
+                      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                      display: flex;
+                      justify-content: center;
+                      align-items: center;
+                    }
+                    #heatmap {
+                      width: 100%;
+                      max-width: 300px;
+                    }
+                    .cell {
+                      stroke: ${if (isDark) "#1c1c1e" else "#ffffff"};
+                      stroke-width: 2px;
+                      rx: 4px;
+                      ry: 4px;
+                    }
+                    .cell-text {
+                      font-size: 10px;
+                      font-weight: 700;
+                      fill: ${if (isDark) "#ffffff" else "#121212"};
+                      text-anchor: middle;
+                      pointer-events: none;
+                    }
+                    .label {
+                      font-size: 10px;
+                      font-weight: 600;
+                      fill: #8e8e93;
+                      text-anchor: middle;
+                    }
+                  </style>
+                </head>
+                <body>
+                  <div id="heatmap"></div>
+                  <script>
+                    const dailySpent = $jsonDailySpent;
+                    const daysInMonth = $daysInMonth;
+                    const firstDayOfWeek = $firstDayOfWeek;
+                    
+                    const data = [];
+                    for (let i = 0; i < firstDayOfWeek; i++) {
+                      data.push({ empty: true });
+                    }
+                    for (let d = 1; d <= daysInMonth; d++) {
+                      data.push({ day: d, spent: dailySpent[d] || 0 });
+                    }
+                    
+                    const width = 300;
+                    const cellSize = width / 7;
+                    const rowsCount = Math.ceil(data.length / 7);
+                    const height = rowsCount * cellSize + 24;
+                    
+                    const svg = d3.select("#heatmap")
+                      .append("svg")
+                      .attr("width", "100%")
+                      .attr("height", height)
+                      .attr("viewBox", "0 0 300 " + height);
+                      
+                    const weekdays = ["S", "M", "T", "W", "T", "F", "S"];
+                    
+                    weekdays.forEach((day, index) => {
+                      svg.append("text")
+                        .attr("x", index * cellSize + cellSize / 2)
+                        .attr("y", 14)
+                        .attr("class", "label")
+                        .text(day);
+                    });
+                    
+                    const maxSpend = d3.max(data, d => d.spent || 0) || 1;
+                    const colorScale = d3.scaleLinear()
+                      .domain([0, maxSpend * 0.1, maxSpend * 0.5, maxSpend])
+                      .range([
+                        "${if (isDark) "#1c1c1e" else "#f2f2f7"}", 
+                        "#A5D6A7", 
+                        "#4CAF50", 
+                        "#1B5E20"
+                      ]);
+                      
+                    data.forEach((item, index) => {
+                      const row = Math.floor(index / 7);
+                      const col = index % 7;
+                      const x = col * cellSize;
+                      const y = row * cellSize + 24;
+                      
+                      if (!item.empty) {
+                        svg.append("rect")
+                          .attr("x", x + 1)
+                          .attr("y", y + 1)
+                          .attr("width", cellSize - 2)
+                          .attr("height", cellSize - 2)
+                          .attr("class", "cell")
+                          .attr("fill", colorScale(item.spent));
+                          
+                        svg.append("text")
+                          .attr("x", x + cellSize / 2)
+                          .attr("y", y + cellSize / 2 + 3)
+                          .attr("class", "cell-text")
+                          .text(item.day);
+                      }
+                    });
+                  </script>
+                </body>
+                </html>
+            """.trimIndent()
+            
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(230.dp)
+            ) {
+                androidx.compose.ui.viewinterop.AndroidView(
+                    factory = { ctx ->
+                        android.webkit.WebView(ctx).apply {
+                            settings.javaScriptEnabled = true
+                            setBackgroundColor(0)
+                            loadDataWithBaseURL(null, htmlData, "text/html", "UTF-8", null)
+                        }
+                    },
+                    update = { webView ->
+                        webView.loadDataWithBaseURL(null, htmlData, "text/html", "UTF-8", null)
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun DatabasePruneCard(
+    viewModel: MainViewModel,
+    isDark: Boolean
+) {
+    var selectedYears by remember { mutableStateOf(2) }
+    var doArchive by remember { mutableStateOf(true) }
+    var isPruning by remember { mutableStateOf(false) }
+    var pruneResult by remember { mutableStateOf<String?>(null) }
+    
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(0.8.dp, if (isDark) BorderColor.copy(alpha = 0.3f) else Color.LightGray.copy(alpha = 0.5f)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("database_pruning_utility_card")
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.DeleteSweep,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(24.dp)
+                )
+                Text(
+                    text = "SQLITE PERFORMANCE & PRUNING",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+            Text(
+                text = "Optimize database size and speed by archiving or permanently deleting historical transactions older than a certain number of years.",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+            )
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Keep data from past:", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(1, 2, 3, 5).forEach { yrs ->
+                        FilterChip(
+                            selected = selectedYears == yrs,
+                            onClick = { selectedYears = yrs },
+                            label = { Text("$yrs Year${if (yrs > 1) "s" else ""}") },
+                            modifier = Modifier.testTag("prune_years_chip_$yrs")
+                        )
+                    }
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(10.dp))
+            
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Auto-Archive to CSV", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Text("Generates a local backup CSV copy before purging records", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
+                }
+                Switch(
+                    checked = doArchive,
+                    onCheckedChange = { doArchive = it },
+                    modifier = Modifier.testTag("prune_archive_switch")
+                )
+            }
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            if (isPruning) {
+                CircularProgressIndicator(
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(24.dp).align(Alignment.CenterHorizontally)
+                )
+            } else {
+                Button(
+                    onClick = {
+                        isPruning = true
+                        pruneResult = null
+                        viewModel.pruneTransactionsOlderThanYears(selectedYears, doArchive) { count, filePath ->
+                            isPruning = false
+                            if (count < 0) {
+                                pruneResult = "Error optimizing database: $filePath"
+                            } else if (count == 0) {
+                                pruneResult = "No historical transactions found older than $selectedYears years."
+                            } else {
+                                pruneResult = "Purged and optimized $count transaction entries. " +
+                                        (if (filePath != null) "\nArchive saved to: $filePath" else "")
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("prune_now_btn"),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("EXECUTE SQLite VACUUM & PURGE", fontWeight = FontWeight.ExtraBold, color = Color.White)
+                }
+            }
+            
+            pruneResult?.let { res ->
+                Spacer(modifier = Modifier.height(12.dp))
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.15f)),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = res,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (res.startsWith("Error")) MaterialTheme.colorScheme.error else FintechGreen,
+                        modifier = Modifier.padding(10.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+

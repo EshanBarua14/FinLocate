@@ -19,14 +19,30 @@ class FinanceRepository(private val db: AppDatabase) {
     private val countryConfigDao = db.countryConfigDao()
     private val recurringTransactionDao = db.recurringTransactionDao()
     private val userDebtDao = db.userDebtDao()
+    private val savingsGoalDao = db.savingsGoalDao()
+    private val transactionExchangeRateLogDao = db.transactionExchangeRateLogDao()
 
     // --- Observable Flows ---
     val allAccounts: Flow<List<AccountEntity>> = accountDao.getAllAccounts()
     val allTransactions: Flow<List<TransactionEntity>> = transactionDao.getAllTransactions()
+    val allExchangeRateLogs: Flow<List<TransactionExchangeRateLogEntity>> = transactionExchangeRateLogDao.getAllLogsFlow()
     val allInsights: Flow<List<InsightEntity>> = insightDao.getAllInsights()
     val activeCountrySetting: Flow<CountrySettingEntity?> = countrySettingDao.getCountrySettingFlow()
     val allRecurring: Flow<List<RecurringTransactionEntity>> = recurringTransactionDao.getAllRecurringFlow()
     val allDebts: Flow<List<UserDebtEntity>> = userDebtDao.getAllDebtsFlow()
+    val allGoals: Flow<List<SavingsGoalEntity>> = savingsGoalDao.getAllGoalsFlow()
+
+    suspend fun insertGoal(goal: SavingsGoalEntity) = withContext(Dispatchers.IO) {
+        savingsGoalDao.insertGoal(goal)
+    }
+
+    suspend fun updateGoal(goal: SavingsGoalEntity) = withContext(Dispatchers.IO) {
+        savingsGoalDao.updateGoal(goal)
+    }
+
+    suspend fun deleteGoal(goal: SavingsGoalEntity) = withContext(Dispatchers.IO) {
+        savingsGoalDao.deleteGoal(goal)
+    }
 
     suspend fun insertDebt(debt: UserDebtEntity) = withContext(Dispatchers.IO) {
         userDebtDao.insertDebt(debt)
@@ -159,7 +175,24 @@ class FinanceRepository(private val db: AppDatabase) {
             }
         }
 
+        transactionExchangeRateLogDao.deleteLogsByTransactionId(transaction.id)
         transactionDao.deleteTransaction(transaction)
+    }
+
+    suspend fun getTransactionsOlderThan(timestamp: Long): List<TransactionEntity> = withContext(Dispatchers.IO) {
+        transactionDao.getTransactionsOlderThan(timestamp)
+    }
+
+    suspend fun deleteTransactionsOlderThan(timestamp: Long): Int = withContext(Dispatchers.IO) {
+        transactionDao.deleteTransactionsOlderThan(timestamp)
+    }
+
+    suspend fun insertExchangeRateLog(log: TransactionExchangeRateLogEntity) = withContext(Dispatchers.IO) {
+        transactionExchangeRateLogDao.insertLog(log)
+    }
+
+    suspend fun deleteExchangeRateLogsByTransactionId(transactionId: Long) = withContext(Dispatchers.IO) {
+        transactionExchangeRateLogDao.deleteLogsByTransactionId(transactionId)
     }
 
     suspend fun insertBudget(budget: BudgetEntity) = withContext(Dispatchers.IO) {

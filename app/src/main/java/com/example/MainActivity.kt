@@ -11,10 +11,14 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.Backspace
+import androidx.compose.material.icons.automirrored.filled.ListAlt
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import kotlinx.coroutines.launch
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -204,7 +208,7 @@ class MainActivity : FragmentActivity() {
                                                             .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(30.dp))
                                                     ) {
                                                         Icon(
-                                                            imageVector = Icons.Default.Backspace,
+                                                            imageVector = Icons.AutoMirrored.Filled.Backspace,
                                                             contentDescription = "Delete key",
                                                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                                             modifier = Modifier.size(22.dp)
@@ -280,11 +284,41 @@ class MainActivity : FragmentActivity() {
                     var activeTabIndex by remember { mutableStateOf(0) }
                     val countryConfig by viewModel.activeCountryConfig.collectAsState()
                     val context = androidx.compose.ui.platform.LocalContext.current
+                    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
 
                     LaunchedEffect(Unit) {
                         viewModel.checkRateUpdatePrompt()
-                        viewModel.notifications.collect { msg ->
-                            android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_LONG).show()
+                        
+                        launch {
+                            viewModel.notifications.collect { msg ->
+                                android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_LONG).show()
+                            }
+                        }
+
+                        launch {
+                            viewModel.uiEvents.collect { event ->
+                                when (event) {
+                                    is UiEvent.ExpenseSubmitted -> {
+                                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                    }
+                                    is UiEvent.SavingsGoalReached -> {
+                                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                        try {
+                                            kotlinx.coroutines.delay(150)
+                                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                            kotlinx.coroutines.delay(150)
+                                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                        } catch (e: Exception) {}
+                                    }
+                                    is UiEvent.BudgetAlertTriggered -> {
+                                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                        try {
+                                            kotlinx.coroutines.delay(200)
+                                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                        } catch (e: Exception) {}
+                                    }
+                                }
+                            }
                         }
                     }
 
@@ -301,9 +335,9 @@ class MainActivity : FragmentActivity() {
                             ) {
                                 val tabs = listOf(
                                     NavigationTabItem("Dashboard", Icons.Default.Dashboard, "tab_dashboard"),
-                                    NavigationTabItem("Ledger", Icons.Default.ListAlt, "tab_ledger"),
+                                    NavigationTabItem("Ledger", Icons.AutoMirrored.Filled.ListAlt, "tab_ledger"),
                                     NavigationTabItem("Budgets", Icons.Default.PieChart, "tab_budgets"),
-                                    NavigationTabItem("Tax Board", Icons.Default.ReceiptLong, "tab_tax"),
+                                    NavigationTabItem("Tax Board", Icons.AutoMirrored.Filled.ReceiptLong, "tab_tax"),
                                     NavigationTabItem("Regions", Icons.Default.Language, "tab_countries"),
                                     NavigationTabItem("AI Assist", Icons.Default.AutoAwesome, "tab_ai")
                                 )

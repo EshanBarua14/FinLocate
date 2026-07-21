@@ -41,19 +41,7 @@ object BudgetNotificationService {
                         percentage = percentage,
                         spent = budget.spent,
                         limit = budget.amount,
-                        message = "⚠️ Alert: Exceeded budget for '$categoryName'! Spent $spent of $limit ($percentage%)."
-                    )
-                )
-            } else if (percentage >= 90) {
-                alerts.add(
-                    BudgetAlert(
-                        categoryId = budget.categoryId,
-                        categoryName = categoryName,
-                        isExceeded = false,
-                        percentage = percentage,
-                        spent = budget.spent,
-                        limit = budget.amount,
-                        message = "🚨 High Utilization: Exceeded 90% of budget limit for '$categoryName'. Spent $spent of $limit ($percentage%)."
+                        message = "🚨 Budget Alert (100% Reached): You have fully used your monthly budget for '$categoryName'! Spent $spent of $limit ($percentage%)."
                     )
                 )
             } else if (percentage >= 80) {
@@ -65,7 +53,7 @@ object BudgetNotificationService {
                         percentage = percentage,
                         spent = budget.spent,
                         limit = budget.amount,
-                        message = "⚠️ Warning: Approaching budget limit for '$categoryName'. Used $percentage% ($spent of $limit)."
+                        message = "⚠️ Budget Warning (80% Reached): You have used 80% or more of your budget limit for '$categoryName'. Spent $spent of $limit ($percentage%)."
                     )
                 )
             }

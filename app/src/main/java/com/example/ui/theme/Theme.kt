@@ -91,6 +91,13 @@ fun MyApplicationTheme(
   val outline = animateColorAsState(targetColorScheme.outline, animationSpec, label = "outline").value
   val outlineVariant = animateColorAsState(targetColorScheme.outlineVariant, animationSpec, label = "outlineVariant").value
   val scrim = animateColorAsState(targetColorScheme.scrim, animationSpec, label = "scrim").value
+  val surfaceBright = animateColorAsState(targetColorScheme.surfaceBright, animationSpec, label = "surfaceBright").value
+  val surfaceDim = animateColorAsState(targetColorScheme.surfaceDim, animationSpec, label = "surfaceDim").value
+  val surfaceContainer = animateColorAsState(targetColorScheme.surfaceContainer, animationSpec, label = "surfaceContainer").value
+  val surfaceContainerHigh = animateColorAsState(targetColorScheme.surfaceContainerHigh, animationSpec, label = "surfaceContainerHigh").value
+  val surfaceContainerHighest = animateColorAsState(targetColorScheme.surfaceContainerHighest, animationSpec, label = "surfaceContainerHighest").value
+  val surfaceContainerLow = animateColorAsState(targetColorScheme.surfaceContainerLow, animationSpec, label = "surfaceContainerLow").value
+  val surfaceContainerLowest = animateColorAsState(targetColorScheme.surfaceContainerLowest, animationSpec, label = "surfaceContainerLowest").value
 
   val animatedColorScheme = ColorScheme(
     primary = primary,
@@ -121,7 +128,14 @@ fun MyApplicationTheme(
     onErrorContainer = onErrorContainer,
     outline = outline,
     outlineVariant = outlineVariant,
-    scrim = scrim
+    scrim = scrim,
+    surfaceBright = surfaceBright,
+    surfaceDim = surfaceDim,
+    surfaceContainer = surfaceContainer,
+    surfaceContainerHigh = surfaceContainerHigh,
+    surfaceContainerHighest = surfaceContainerHighest,
+    surfaceContainerLow = surfaceContainerLow,
+    surfaceContainerLowest = surfaceContainerLowest
   )
 
   MaterialTheme(colorScheme = animatedColorScheme, typography = Typography, content = content)

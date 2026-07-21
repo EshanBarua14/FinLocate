@@ -19,9 +19,11 @@ import com.example.data.model.*
         MatchingRuleEntity::class,
         RecurringTransactionEntity::class,
         ExchangeRateEntity::class,
-        UserDebtEntity::class
+        UserDebtEntity::class,
+        SavingsGoalEntity::class,
+        TransactionExchangeRateLogEntity::class
     ],
-    version = 10, // bumped version to 10 to support receiptPath in TransactionEntity
+    version = 12, // bumped version to 12 to support TransactionExchangeRateLogEntity
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -37,6 +39,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun recurringTransactionDao(): RecurringTransactionDao
     abstract fun exchangeRateDao(): ExchangeRateDao
     abstract fun userDebtDao(): UserDebtDao
+    abstract fun savingsGoalDao(): SavingsGoalDao
+    abstract fun transactionExchangeRateLogDao(): TransactionExchangeRateLogDao
 
     companion object {
         @Volatile

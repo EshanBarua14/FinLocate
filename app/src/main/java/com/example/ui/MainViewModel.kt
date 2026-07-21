@@ -41,7 +41,17 @@ data class PredictiveInsight(
     val trendType: String // "REDUCE", "INCREASE", "STABLE"
 )
 
+sealed class UiEvent {
+    object ExpenseSubmitted : UiEvent()
+    object SavingsGoalReached : UiEvent()
+    object BudgetAlertTriggered : UiEvent()
+}
+
 class MainViewModel(application: Application) : AndroidViewModel(application) {
+
+    // --- Interactive UI & Haptic Event Flow ---
+    private val _uiEvents = MutableSharedFlow<UiEvent>(extraBufferCapacity = 64)
+    val uiEvents = _uiEvents.asSharedFlow()
 
     private val db = AppDatabase.getDatabase(application)
     private val repository = FinanceRepository(db)
@@ -543,6 +553,56 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return defaultTemplates + savedList.toList()
     }
 
+    fun generateBudgetFromSpendingHabits(monthsCount: Int) {
+        val cats = categories.value
+        val monthStr = selectedMonth.value
+        val txs = allTransactions.value
+
+        viewModelScope.launch {
+            val calendar = Calendar.getInstance()
+            calendar.add(Calendar.MONTH, -monthsCount)
+            val startTime = calendar.timeInMillis
+            val endTime = System.currentTimeMillis()
+
+            val expenses = txs.filter { 
+                it.type == "EXPENSE" && it.timestamp in startTime..endTime 
+            }
+
+            if (expenses.isEmpty()) {
+                postNotification("No previous expenses found to analyze spending habits.")
+                return@launch
+            }
+
+            val avgSpendingByCategory = expenses
+                .groupBy { it.categoryId }
+                .mapValues { (_, txList) ->
+                    txList.sumOf { it.amount } / monthsCount.toDouble()
+                }
+
+            val currentMonthBudgets = repository.getBudgetsForMonth(monthStr).first().filter { it.month == monthStr }
+            currentMonthBudgets.forEach { b ->
+                repository.deleteBudget(b)
+            }
+
+            avgSpendingByCategory.forEach { (catId, avgAmount) ->
+                if (avgAmount > 0.0) {
+                    repository.insertBudget(
+                        BudgetEntity(
+                            categoryId = catId,
+                            month = monthStr,
+                            amount = kotlin.math.round(avgAmount * 100) / 100.0,
+                            isAdaptive = true,
+                            savingsGoal = 0.0,
+                            spent = 0.0
+                        )
+                    )
+                }
+            }
+
+            postNotification("Generated budgets for $monthStr based on previous $monthsCount months' average spending habits!")
+        }
+    }
+
     // --- Interactive Notifications Flow ---
     private val _notifications = MutableSharedFlow<String>(extraBufferCapacity = 64)
     val notifications = _notifications.asSharedFlow()
@@ -742,6 +802,48 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val allTransactions: StateFlow<List<TransactionEntity>> = repository.allTransactions
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val categories: StateFlow<List<CategoryEntity>> = repository.getAllCategories()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val allExchangeRateLogs: StateFlow<List<TransactionExchangeRateLogEntity>> = repository.allExchangeRateLogs
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun pruneTransactionsOlderThanYears(years: Int, archive: Boolean, onComplete: (Int, String?) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val thresholdTime = System.currentTimeMillis() - (years * 365L * 24L * 60L * 60L * 1000L)
+                val oldTransactions = repository.getTransactionsOlderThan(thresholdTime)
+                if (oldTransactions.isEmpty()) {
+                    onComplete(0, null)
+                    return@launch
+                }
+
+                var archiveFilePath: String? = null
+                if (archive) {
+                    val fileName = "wealthflow_archive_older_than_${years}_yrs_${System.currentTimeMillis()}.csv"
+                    val file = java.io.File(getApplication<Application>().filesDir, fileName)
+                    file.bufferedWriter().use { writer ->
+                        writer.write("id,amount,type,categoryId,accountId,toAccountId,timestamp,merchant,isTaxDeductible,taxRate,notes\n")
+                        oldTransactions.forEach { tx ->
+                            writer.write("${tx.id},${tx.amount},${tx.type},${tx.categoryId},${tx.accountId},${tx.toAccountId},${tx.timestamp},\"${tx.merchant.replace("\"", "\"\"")}\",${tx.isTaxDeductible},${tx.taxRate},\"${tx.notes.replace("\"", "\"\"")}\"\n")
+                        }
+                    }
+                    archiveFilePath = file.absolutePath
+                }
+
+                val deletedCount = repository.deleteTransactionsOlderThan(thresholdTime)
+                
+                // VACUUM SQLite
+                db.openHelper.writableDatabase.execSQL("VACUUM")
+
+                postNotification("Successfully cleaned up $deletedCount transactions older than $years years!")
+                onComplete(deletedCount, archiveFilePath)
+            } catch (e: Exception) {
+                onComplete(-1, e.message)
+            }
+        }
+    }
+
     val monthToMonthSpending: StateFlow<String> = allTransactions.map { txList ->
         val sdf = SimpleDateFormat("yyyy-MM", Locale.US)
         val monthlyMap = txList.filter { it.type == "EXPENSE" }
@@ -756,6 +858,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             "{\"month\": \"${entry.key}\", \"Spent\": ${entry.value}}"
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
+
+    val monthlySpendingByCategory: StateFlow<Map<String, Map<String, Double>>> = combine(
+        allTransactions,
+        categories
+    ) { txList, catList ->
+        val catMap = catList.associate { it.id to it.name }
+        val sdf = SimpleDateFormat("yyyy-MM", Locale.US)
+        txList.filter { it.type == "EXPENSE" }
+            .groupBy { sdf.format(Date(it.timestamp)) }
+            .mapValues { (_, txs) ->
+                txs.groupBy { catMap[it.categoryId] ?: "Uncategorized" }
+                    .mapValues { (_, subTxs) -> subTxs.sumOf { it.amount } }
+            }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     val isExportEncryptionEnabled = MutableStateFlow(false)
     val exportPasscode = MutableStateFlow("SecurePass2026")
@@ -787,9 +903,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val detectedAnomalies: StateFlow<List<AnomalyReport>> = combine(allTransactions, accounts) { txs, accs ->
         AnomalyDetectionService.analyzeTransactions(txs, accs)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    val categories: StateFlow<List<CategoryEntity>> = repository.getAllCategories()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val smartInsights: StateFlow<List<InsightEntity>> = repository.allInsights
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -1005,6 +1118,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (!notifiedAlertKeys.contains(key)) {
                 notifiedAlertKeys.add(key)
                 postNotification(alert.message)
+                _uiEvents.tryEmit(UiEvent.BudgetAlertTriggered)
             }
         }
         alerts
@@ -1046,6 +1160,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     val currentOutflow: StateFlow<Double> = combine(filteredTransactions, accounts, displayCurrency, exchangeRates) { txList, accList, targetCurrency, rates ->
         txList.filter { it.type == "EXPENSE" }.sumOf { tx ->
+            val acc = accList.find { it.id == tx.accountId }
+            val txCurrency = acc?.currency ?: "USD"
+            convertCurrency(tx.amount, txCurrency, targetCurrency)
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+
+    val previousMonthOutflow: StateFlow<Double> = combine(allTransactions, selectedMonth, accounts, displayCurrency, exchangeRates) { txs, month, accList, targetCurrency, rates ->
+        val sdf = SimpleDateFormat("yyyy-MM", Locale.US)
+        val cal = Calendar.getInstance()
+        try {
+            val date = sdf.parse(month)
+            if (date != null) {
+                cal.time = date
+                cal.add(Calendar.MONTH, -1)
+            }
+        } catch (e: Exception) {}
+        val prevMonthStr = sdf.format(cal.time)
+        txs.filter { tx ->
+            val txMonth = sdf.format(Date(tx.timestamp))
+            txMonth == prevMonthStr && tx.type == "EXPENSE"
+        }.sumOf { tx ->
             val acc = accList.find { it.id == tx.accountId }
             val txCurrency = acc?.currency ?: "USD"
             convertCurrency(tx.amount, txCurrency, targetCurrency)
@@ -1217,6 +1352,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _aiReport = MutableStateFlow<String?>(null)
     val aiReport: StateFlow<String?> = _aiReport.asStateFlow()
 
+    private val _monthlySummaryLoading = MutableStateFlow(false)
+    val monthlySummaryLoading: StateFlow<Boolean> = _monthlySummaryLoading.asStateFlow()
+
+    private val _monthlySummaryReport = MutableStateFlow<String?>(null)
+    val monthlySummaryReport: StateFlow<String?> = _monthlySummaryReport.asStateFlow()
+
     fun triggerGeminiEvaluation() {
         viewModelScope.launch {
             _aiInsightsLoading.value = true
@@ -1289,6 +1430,99 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             _aiInsightsLoading.value = false
         }
+    }
+
+    fun triggerMonthlySpendingSummary() {
+        viewModelScope.launch {
+            _monthlySummaryLoading.value = true
+            _monthlySummaryReport.value = null
+
+            val currentCountryName = activeCountryConfig.value.country
+            val currencySymbol = activeCountryConfig.value.currencySymbol
+            val activeTxs = filteredTransactions.value
+            val activeCat = categories.value
+
+            val totalIn = currentInflow.value
+            val totalOut = currentOutflow.value
+            val balance = totalBalance.value
+
+            if (!GeminiApiClient.isApiKeyConfigured()) {
+                // Return country-specific mock monthly summary report fallback
+                generateMonthlyMockSummary(currentCountryName, currencySymbol, totalIn, totalOut, balance)
+                _monthlySummaryLoading.value = false
+                return@launch
+            }
+
+            // Construct full data context for Gemini
+            val transactionSummary = activeTxs.take(50).joinToString("\n") { tx ->
+                val catName = activeCat.find { it.id == tx.categoryId }?.name ?: "Transfer"
+                "- ${catName}: ${currencySymbol}${tx.amount} (${tx.type}) at ${tx.merchant}. Tax Deductible: ${tx.isTaxDeductible}"
+            }
+
+            val prompt = """
+                Generate a plain-text monthly financial summary report and spending health overview.
+                Current Country: $currentCountryName
+                Current Accounts Balance: $currencySymbol$balance
+                Monthly Inflow (Income): $currencySymbol$totalIn
+                Monthly Outflow (Expenses): $currencySymbol$totalOut
+                
+                RECENT LEDGER ENTRIES FOR THIS MONTH:
+                $transactionSummary
+                
+                Please generate:
+                1. Monthly Spending Health Overview: A natural language evaluation of my spending health (e.g. savings rate, cashflow status, burn rate).
+                2. Key Spending Drivers: Identify the major categories and specific transactions driving outflows.
+                3. Direct Financial Health Rating & Guidance: Give a simple health score/rating (Healthy, Stable, or At Risk) with clear, actionable explanation.
+                
+                Keep response in an elegant, plain-text advisory format with clean bullet points.
+            """.trimIndent()
+
+            val systemInstruction = "You are an elite automated financial intelligence officer. Write in a clear, objective, conversational, and direct advisory tone."
+
+            val resultText = GeminiApiClient.getAiInsights(prompt, systemInstruction)
+            _monthlySummaryReport.value = resultText
+            _monthlySummaryLoading.value = false
+        }
+    }
+
+    private fun generateMonthlyMockSummary(
+        country: String,
+        symbol: String,
+        inflow: Double,
+        outflow: Double,
+        balance: Double
+    ) {
+        val savingsRate = if (inflow > 0.0) ((inflow - outflow) / inflow * 100.0).coerceAtLeast(0.0) else 0.0
+        val rating = when {
+            savingsRate >= 30.0 -> "HEALTHY"
+            savingsRate >= 10.0 -> "STABLE"
+            else -> "AT RISK"
+        }
+        val adviceText = when (rating) {
+            "HEALTHY" -> "Outstanding savings buffer! Your surplus position is resilient and well-aligned with wealth creation principles. Consider allocating this extra flow to high-yielding assets or savings goals."
+            "STABLE" -> "Your monthly ledger is balanced, but your savings buffer remains thin. Focus on tightening discretionary shopping or food & dining limits to push your savings rate closer to 30%."
+            else -> "Warning: High burn rate or negative net cash flow detected. Your outflows are dangerously close to or exceed your inflows. Action is needed immediately to curtail non-essential expenses."
+        }
+
+        val mockReport = """
+            ### 📊 Monthly Financial Health Overview (${country})
+            
+            *A localized plain-text financial health overview generated via offline intelligence engines.*
+            
+            *   **Cash Flow Position**: Inflow of ${symbol}${inflow} vs Outflow of ${symbol}${outflow}.
+            *   **Calculated Savings Rate**: ${String.format(Locale.US, "%.1f", savingsRate)}%
+            *   **Discretionary Outflow Burden**: Discretionary spending represents approximately ${String.format(Locale.US, "%.1f", outflow * 0.45)} of total cash outflow.
+            
+            ### 📉 Major Spending Drivers
+            1.  **Fixed Obligations**: Utilities, rent, and scheduled bills represent the primary baseline.
+            2.  **Discretionary Leaks**: Retail dining and lifestyle items have generated secondary friction.
+            
+            ### 🛡️ Financial Health Rating & Advice
+            *   **Rating**: **$rating**
+            *   **Guidance**: $adviceText
+        """.trimIndent()
+
+        _monthlySummaryReport.value = mockReport
     }
 
     private suspend fun generateDynamicMockInsights(
@@ -1391,6 +1625,47 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val merchantLower = merchant.lowercase(Locale.US)
         val combined = "$notesLower $merchantLower"
         val cats = categories.value
+
+        // 0. Historical User Pattern Matching: Match by merchant name in past transactions
+        if (merchant.isNotEmpty()) {
+            val pastTransactions = allTransactions.value
+            val merchantMatches = pastTransactions.filter { 
+                it.merchant.equals(merchant, ignoreCase = true) && it.categoryId != 0L
+            }
+            if (merchantMatches.isNotEmpty()) {
+                val categoryFrequency = merchantMatches.groupBy { it.categoryId }
+                    .mapValues { it.value.size }
+                val mostFrequentCategory = categoryFrequency.maxByOrNull { it.value }?.key
+                if (mostFrequentCategory != null) {
+                    return mostFrequentCategory
+                }
+            }
+            
+            // Substring pattern: if past transactions contain this merchant as a substring
+            val partialMatches = pastTransactions.filter {
+                val pastMerchantLower = it.merchant.lowercase(Locale.US)
+                (pastMerchantLower.isNotEmpty() && (pastMerchantLower.contains(merchantLower) || merchantLower.contains(pastMerchantLower))) && it.categoryId != 0L
+            }
+            if (partialMatches.isNotEmpty()) {
+                val categoryFrequency = partialMatches.groupBy { it.categoryId }
+                    .mapValues { it.value.size }
+                val mostFrequentCategory = categoryFrequency.maxByOrNull { it.value }?.key
+                if (mostFrequentCategory != null) {
+                    return mostFrequentCategory
+                }
+            }
+        }
+
+        // 1. Prioritize dynamic user-defined matching rules from DB
+        val customRules = matchingRules.value
+        for (rule in customRules) {
+            val kw = rule.keyword.lowercase(Locale.US)
+            if ((merchantLower.isNotEmpty() && merchantLower.contains(kw)) ||
+                (notesLower.isNotEmpty() && notesLower.contains(kw))
+            ) {
+                return rule.categoryId
+            }
+        }
 
         val keywordToCategoryName = mapOf(
             "grocery" to "Food & Dining",
@@ -1537,7 +1812,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 tags = tags,
                 receiptPath = receiptPath
             )
-            repository.insertTransaction(tx)
+            val insertedId = repository.insertTransaction(tx)
+            
+            // Log exchange rates used at the time of each transaction
+            val currentCurrency = activeCountryConfig.value.currency
+            val rateInUsd = exchangeRates.value[currentCurrency] ?: 1.0
+            val exchangeLog = TransactionExchangeRateLogEntity(
+                transactionId = insertedId,
+                originalCurrency = currentCurrency,
+                targetCurrency = "USD",
+                exchangeRateUsed = rateInUsd,
+                timestamp = tx.timestamp
+            )
+            repository.insertExchangeRateLog(exchangeLog)
+
+            _uiEvents.tryEmit(UiEvent.ExpenseSubmitted)
 
             // Auto-populate subsequent entries in local storage if recurring
             if (isRecurring && recurrenceInterval != "NONE") {
@@ -1791,6 +2080,51 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             repository.deleteDebt(debt)
             postNotification("Cleared user debt: '${debt.name}'")
+        }
+    }
+
+    val allGoals: StateFlow<List<SavingsGoalEntity>> = repository.allGoals
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun addSavingsGoal(name: String, targetAmount: Double, targetDate: Long, savedAmount: Double) {
+        viewModelScope.launch {
+            val goal = SavingsGoalEntity(
+                name = name,
+                targetAmount = targetAmount,
+                targetDate = targetDate,
+                savedAmount = savedAmount
+            )
+            repository.insertGoal(goal)
+            postNotification("Created Savings Goal: '$name' of ${formatCurrency(targetAmount)}")
+        }
+    }
+
+    fun updateSavingsGoal(goal: SavingsGoalEntity) {
+        viewModelScope.launch {
+            repository.updateGoal(goal)
+            postNotification("Updated savings goal: '${goal.name}'")
+        }
+    }
+
+    fun deleteSavingsGoal(goal: SavingsGoalEntity) {
+        viewModelScope.launch {
+            repository.deleteGoal(goal)
+            postNotification("Removed savings goal: '${goal.name}'")
+        }
+    }
+
+    fun allocateToSavingsGoal(goal: SavingsGoalEntity, amount: Double) {
+        viewModelScope.launch {
+            val updated = goal.copy(savedAmount = (goal.savedAmount + amount).coerceAtLeast(0.0))
+            repository.updateGoal(updated)
+            postNotification("Allocated ${formatCurrency(amount)} to '${goal.name}'")
+
+            val originallyCompleted = goal.savedAmount >= goal.targetAmount
+            val nowCompleted = updated.savedAmount >= updated.targetAmount
+            if (nowCompleted && !originallyCompleted) {
+                postNotification("🎉 SAVINGS GOAL ACHIEVED: '${goal.name}' reached its target of ${formatCurrency(goal.targetAmount)}!")
+                _uiEvents.tryEmit(UiEvent.SavingsGoalReached)
+            }
         }
     }
 

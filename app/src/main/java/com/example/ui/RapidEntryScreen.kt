@@ -11,6 +11,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -452,8 +454,8 @@ fun RapidEntryScreen(
                                     "directions_car" -> Icons.Default.DirectionsCar
                                     "home" -> Icons.Default.Home
                                     "movie" -> Icons.Default.Movie
-                                    "receipt_long" -> Icons.Default.ReceiptLong
-                                    "trending_up" -> Icons.Default.TrendingUp
+                                    "receipt_long" -> Icons.AutoMirrored.Filled.ReceiptLong
+                                    "trending_up" -> Icons.AutoMirrored.Filled.TrendingUp
                                     else -> Icons.Default.ShoppingBag
                                 }
                                 Icon(imageVector = icon, contentDescription = cat.name, tint = textColor, modifier = Modifier.size(16.dp))
@@ -484,7 +486,7 @@ fun RapidEntryScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Icon(imageVector = Icons.Default.ReceiptLong, contentDescription = "Tax", tint = AccentGold, modifier = Modifier.size(18.dp))
+                        Icon(imageVector = Icons.AutoMirrored.Filled.ReceiptLong, contentDescription = "Tax", tint = AccentGold, modifier = Modifier.size(18.dp))
                         Text("Tax Deductible Receipt", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                     Switch(
@@ -1288,7 +1290,7 @@ fun DetailedFormLayout(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Default.ReceiptLong,
+                                imageVector = Icons.AutoMirrored.Filled.ReceiptLong,
                                 contentDescription = "Tax status",
                                 tint = AccentGold,
                                 modifier = Modifier.size(16.dp)

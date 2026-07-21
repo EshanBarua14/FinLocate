@@ -25,11 +25,11 @@ class TransactionMatchingAndNetWorthTest {
     fun testLocalFallbackCategoryMatchingHeuristics() {
         // Mock default categories
         val defaultCats = listOf(
-            CategoryEntity(id = 1L, name = "Salary", categoryColorHex = "#fff", budgetedAmount = 0.0, spentAmount = 0.0),
-            CategoryEntity(id = 3L, name = "Food & Dining", categoryColorHex = "#fff", budgetedAmount = 0.0, spentAmount = 0.0),
-            CategoryEntity(id = 4L, name = "Transport & Commute", categoryColorHex = "#fff", budgetedAmount = 0.0, spentAmount = 0.0),
-            CategoryEntity(id = 6L, name = "Entertainment", categoryColorHex = "#fff", budgetedAmount = 0.0, spentAmount = 0.0),
-            CategoryEntity(id = 9L, name = "Shopping", categoryColorHex = "#fff", budgetedAmount = 0.0, spentAmount = 0.0)
+            CategoryEntity(id = 1L, name = "Salary", iconName = "attach_money", isIncome = true),
+            CategoryEntity(id = 3L, name = "Food & Dining", iconName = "restaurant", isIncome = false),
+            CategoryEntity(id = 4L, name = "Transport & Commute", iconName = "directions_car", isIncome = false),
+            CategoryEntity(id = 6L, name = "Entertainment", iconName = "movie", isIncome = false),
+            CategoryEntity(id = 9L, name = "Shopping", iconName = "shopping_bag", isIncome = false)
         )
 
         // We can test properties of heuristics matching if we mock DB, but we can verify our heuristics logic behaves consistently

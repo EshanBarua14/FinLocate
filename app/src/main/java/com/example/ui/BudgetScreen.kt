@@ -12,8 +12,8 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -371,7 +371,7 @@ fun BudgetScreen(
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Icon(
-                                    imageVector = Icons.Default.TrendingUp,
+                                    imageVector = Icons.AutoMirrored.Filled.TrendingUp,
                                     contentDescription = "Predictive Insights",
                                     tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(20.dp)
@@ -1206,6 +1206,55 @@ fun BudgetScreen(
                                         modifier = Modifier.size(16.dp)
                                     )
                                 }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                        Text(
+                            text = "⚡ GENERATE FROM SPENDING HABITS",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(vertical = 4.dp)
+                        )
+                        Text(
+                            text = "Analyze your previous expenses and auto-generate custom budget limits matching your real average spending.",
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                        )
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Button(
+                                onClick = {
+                                    viewModel.generateBudgetFromSpendingHabits(1)
+                                    showTemplateSelector = false
+                                    val prefs = context.getSharedPreferences("financial_milestones_prefs", android.content.Context.MODE_PRIVATE)
+                                    prefs.edit().putBoolean("template_pioneer_unlocked", true).apply()
+                                    isTemplateUnlocked = true
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.weight(1f).testTag("habits_template_1m")
+                            ) {
+                                Text("Last Month", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                            Button(
+                                onClick = {
+                                    viewModel.generateBudgetFromSpendingHabits(3)
+                                    showTemplateSelector = false
+                                    val prefs = context.getSharedPreferences("financial_milestones_prefs", android.content.Context.MODE_PRIVATE)
+                                    prefs.edit().putBoolean("template_pioneer_unlocked", true).apply()
+                                    isTemplateUnlocked = true
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.weight(1f).testTag("habits_template_3m")
+                            ) {
+                                Text("Last 3 Months Avg", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                     }

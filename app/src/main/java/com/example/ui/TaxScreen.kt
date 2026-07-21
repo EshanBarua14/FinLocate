@@ -25,6 +25,10 @@ import androidx.compose.ui.graphics.Color
 
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.material.icons.filled.Calculate
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.foundation.BorderStroke
@@ -494,6 +498,285 @@ fun TaxScreen(
             }
         }
 
+        // --- 2.5 INTERACTIVE LOCALIZED TAX CALCULATOR ---
+        item {
+            var selectedJurisdiction by remember { mutableStateOf("USA (Federal)") }
+            // Collect dynamic monthly inflow to populate defaults
+            val currentInflow by viewModel.currentInflow.collectAsState()
+            
+            // Calculate default initial values based on actual database totals
+            val initialDeductions = totalDeductedVal * 12.0
+            val initialInflow = currentInflow * 12.0
+            
+            var incomeInput by remember(initialInflow) { 
+                mutableStateOf(if (initialInflow > 0.0) "%.2f".format(java.util.Locale.US, initialInflow) else "75000.00") 
+            }
+            var deductionsInput by remember(initialDeductions) { 
+                mutableStateOf(if (initialDeductions > 0.0) "%.2f".format(java.util.Locale.US, initialDeductions) else "12000.00") 
+            }
+            var expandedDropdown by remember { mutableStateOf(false) }
+
+            val doubleIncome = incomeInput.toDoubleOrNull() ?: 0.0
+            val doubleDeductions = deductionsInput.toDoubleOrNull() ?: 0.0
+            val calculatedTax = calculateEstimatedTax(doubleIncome, doubleDeductions, selectedJurisdiction)
+            val taxableNet = maxOf(0.0, doubleIncome - doubleDeductions)
+            val effectiveRate = if (doubleIncome > 0.0) (calculatedTax / doubleIncome) * 100.0 else 0.0
+            val netIncome = doubleIncome - calculatedTax
+
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("localized_tax_calculator_card")
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Calculate,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Column {
+                            Text(
+                                text = "LOCALIZED ANNUAL TAX ESTIMATOR",
+                                fontWeight = FontWeight.ExtraBold,
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "Pro-rate logged transactions or estimate custom obligations",
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Jurisdiction selection dropdown
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        OutlinedButton(
+                            onClick = { expandedDropdown = true },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                                .testTag("calculator_jurisdiction_btn"),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Jurisdiction: $selectedJurisdiction",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Icon(
+                                    imageVector = Icons.Default.ArrowDropDown,
+                                    contentDescription = "Expand jurisdiction list"
+                                )
+                            }
+                        }
+                        DropdownMenu(
+                            expanded = expandedDropdown,
+                            onDismissRequest = { expandedDropdown = false }
+                        ) {
+                            val jurisdictions = listOf(
+                                "USA (Federal)",
+                                "UK (Single)",
+                                "Germany (Individual)",
+                                "Canada (Federal)",
+                                "India (New Regime)"
+                            )
+                            jurisdictions.forEach { juris ->
+                                DropdownMenuItem(
+                                    text = { Text(juris, fontSize = 12.sp) },
+                                    onClick = {
+                                        selectedJurisdiction = juris
+                                        expandedDropdown = false
+                                    },
+                                    modifier = Modifier.testTag("jurisdiction_item_$juris")
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Row of Input fields
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        OutlinedTextField(
+                            value = incomeInput,
+                            onValueChange = { incomeInput = it },
+                            label = { Text("Est. Annual Income (${config.currencySymbol})", fontSize = 10.sp) },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("calculator_income_input")
+                        )
+
+                        OutlinedTextField(
+                            value = deductionsInput,
+                            onValueChange = { deductionsInput = it },
+                            label = { Text("Est. Annual Deductible (${config.currencySymbol})", fontSize = 10.sp) },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("calculator_deductions_input")
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Calculation Summary Results Box
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.04f),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "Gross Revenue:",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                            )
+                            Text(
+                                text = "${config.currencySymbol}${"%,.2f".format(doubleIncome)}",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+
+                        Row(
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "Applied Deductions:",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                            )
+                            Text(
+                                text = "- ${config.currencySymbol}${"%,.2f".format(doubleDeductions)}",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+
+                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+
+                        Row(
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "Taxable Net Income:",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                            )
+                            Text(
+                                text = "${config.currencySymbol}${"%,.2f".format(taxableNet)}",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+
+                        Row(
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "ESTIMATED TAX LIABILITY:",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = "${config.currencySymbol}${"%,.2f".format(calculatedTax)}",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+
+                        Row(
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "Effective Tax Rate:",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                            )
+                            Text(
+                                text = "${"%.2f".format(effectiveRate)}%",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = AccentGold
+                            )
+                        }
+
+                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+
+                        Row(
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "Net Disposable Income:",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "${config.currencySymbol}${"%,.2f".format(netIncome)}",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Black,
+                                color = FintechGreen
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Brief Bracket Breakdown info
+                    Text(
+                        text = "Calculation applies the progressive/allowance brackets of $selectedJurisdiction for the current filing cycle. Adjust inputs above for customized simulation.",
+                        fontSize = 9.sp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                        lineHeight = 12.sp
+                    )
+                }
+            }
+        }
+
         // --- 3. EXPORT DIALOG POPUP ---
         if (showExportSuccess) {
             item {
@@ -799,5 +1082,119 @@ fun TaxTransactionRow(
                 )
             }
         }
+    }
+}
+
+fun calculateEstimatedTax(income: Double, deductions: Double, jurisdiction: String): Double {
+    val taxableIncome = maxOf(0.0, income - deductions)
+    return when (jurisdiction) {
+        "USA (Federal)" -> {
+            var tax = 0.0
+            var remaining = taxableIncome
+            val tier1 = minOf(remaining, 11600.0)
+            tax += tier1 * 0.10
+            remaining -= tier1
+            if (remaining > 0.0) {
+                val tier2 = minOf(remaining, 47150.0 - 11600.0)
+                tax += tier2 * 0.12
+                remaining -= tier2
+            }
+            if (remaining > 0.0) {
+                val tier3 = minOf(remaining, 100525.0 - 47150.0)
+                tax += tier3 * 0.22
+                remaining -= tier3
+            }
+            if (remaining > 0.0) {
+                tax += remaining * 0.24
+            }
+            tax
+        }
+        "UK (Single)" -> {
+            var tax = 0.0
+            var remaining = taxableIncome
+            val tier1 = minOf(remaining, 12570.0)
+            remaining -= tier1
+            if (remaining > 0.0) {
+                val tier2 = minOf(remaining, 50270.0 - 12570.0)
+                tax += tier2 * 0.20
+                remaining -= tier2
+            }
+            if (remaining > 0.0) {
+                val tier3 = minOf(remaining, 125140.0 - 50270.0)
+                tax += tier3 * 0.40
+                remaining -= tier3
+            }
+            if (remaining > 0.0) {
+                tax += remaining * 0.45
+            }
+            tax
+        }
+        "Germany (Individual)" -> {
+            var tax = 0.0
+            var remaining = taxableIncome
+            val tier1 = minOf(remaining, 11784.0)
+            remaining -= tier1
+            if (remaining > 0.0) {
+                val tier2 = minOf(remaining, 24000.0 - 11784.0)
+                tax += tier2 * 0.14
+                remaining -= tier2
+            }
+            if (remaining > 0.0) {
+                val tier3 = minOf(remaining, 66760.0 - 24000.0)
+                tax += tier3 * 0.24
+                remaining -= tier3
+            }
+            if (remaining > 0.0) {
+                tax += remaining * 0.42
+            }
+            tax
+        }
+        "Canada (Federal)" -> {
+            var tax = 0.0
+            var remaining = taxableIncome
+            val tier1 = minOf(remaining, 55867.0)
+            tax += tier1 * 0.15
+            remaining -= tier1
+            if (remaining > 0.0) {
+                val tier2 = minOf(remaining, 111733.0 - 55867.0)
+                tax += tier2 * 0.205
+                remaining -= tier2
+            }
+            if (remaining > 0.0) {
+                val tier3 = minOf(remaining, 173205.0 - 111733.0)
+                tax += tier3 * 0.26
+                remaining -= tier3
+            }
+            if (remaining > 0.0) {
+                tax += remaining * 0.29
+            }
+            tax
+        }
+        "India (New Regime)" -> {
+            var tax = 0.0
+            var remaining = taxableIncome
+            val tier1 = minOf(remaining, 300000.0)
+            remaining -= tier1
+            if (remaining > 0.0) {
+                val tier2 = minOf(remaining, 700000.0 - 300000.0)
+                tax += tier2 * 0.05
+                remaining -= tier2
+            }
+            if (remaining > 0.0) {
+                val tier3 = minOf(remaining, 1000000.0 - 700000.0)
+                tax += tier3 * 0.10
+                remaining -= tier3
+            }
+            if (remaining > 0.0) {
+                val tier4 = minOf(remaining, 1200000.0 - 1000000.0)
+                tax += tier4 * 0.15
+                remaining -= tier4
+            }
+            if (remaining > 0.0) {
+                tax += remaining * 0.20
+            }
+            tax
+        }
+        else -> taxableIncome * 0.20
     }
 }

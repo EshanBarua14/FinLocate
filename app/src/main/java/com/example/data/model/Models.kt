@@ -286,4 +286,30 @@ data class UserDebtEntity(
     val createdAt: Long = System.currentTimeMillis()
 )
 
+@Entity(tableName = "savings_goals")
+data class SavingsGoalEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    val targetAmount: Double,
+    val targetDate: Long, // timestamp
+    val savedAmount: Double,
+    val userEmail: String = "",
+    val createdAt: Long = System.currentTimeMillis()
+)
+
+@Entity(
+    tableName = "transaction_exchange_rate_logs",
+    indices = [
+        Index(value = ["transactionId"])
+    ]
+)
+data class TransactionExchangeRateLogEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val transactionId: Long,
+    val originalCurrency: String,
+    val targetCurrency: String,
+    val exchangeRateUsed: Double,
+    val timestamp: Long = System.currentTimeMillis()
+)
+
 

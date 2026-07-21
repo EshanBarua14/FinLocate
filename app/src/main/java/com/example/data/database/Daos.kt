@@ -60,6 +60,12 @@ interface TransactionDao {
     @Delete
     suspend fun deleteTransaction(transaction: TransactionEntity)
 
+    @Query("SELECT * FROM transactions WHERE timestamp < :timestamp")
+    suspend fun getTransactionsOlderThan(timestamp: Long): List<TransactionEntity>
+
+    @Query("DELETE FROM transactions WHERE timestamp < :timestamp")
+    suspend fun deleteTransactionsOlderThan(timestamp: Long): Int
+
     @Query("SELECT * FROM transactions WHERE id = :id LIMIT 1")
     suspend fun getTransactionById(id: Long): TransactionEntity?
 }
@@ -209,6 +215,36 @@ interface UserDebtDao {
 
     @Delete
     suspend fun deleteDebt(debt: UserDebtEntity)
+}
+
+@Dao
+interface SavingsGoalDao {
+    @Query("SELECT * FROM savings_goals ORDER BY createdAt DESC")
+    fun getAllGoalsFlow(): Flow<List<SavingsGoalEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertGoal(goal: SavingsGoalEntity): Long
+
+    @Update
+    suspend fun updateGoal(goal: SavingsGoalEntity)
+
+    @Delete
+    suspend fun deleteGoal(goal: SavingsGoalEntity)
+}
+
+@Dao
+interface TransactionExchangeRateLogDao {
+    @Query("SELECT * FROM transaction_exchange_rate_logs ORDER BY timestamp DESC")
+    fun getAllLogsFlow(): Flow<List<TransactionExchangeRateLogEntity>>
+
+    @Query("SELECT * FROM transaction_exchange_rate_logs WHERE transactionId = :transactionId LIMIT 1")
+    suspend fun getLogByTransactionId(transactionId: Long): TransactionExchangeRateLogEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertLog(log: TransactionExchangeRateLogEntity): Long
+
+    @Query("DELETE FROM transaction_exchange_rate_logs WHERE transactionId = :transactionId")
+    suspend fun deleteLogsByTransactionId(transactionId: Long): Int
 }
 
 
