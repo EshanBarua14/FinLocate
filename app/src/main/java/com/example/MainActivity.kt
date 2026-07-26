@@ -70,6 +70,13 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge() // mandatory modern full-bleed edge-to-edge support
 
+        // Schedule background worker for recurring expenses
+        try {
+            com.example.data.worker.RecurringExpenseWorker.scheduleWorker(this)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
         setContent {
             val isDarkTheme by viewModel.isDarkTheme.collectAsState()
             MyApplicationTheme(darkTheme = isDarkTheme, dynamicColor = false) {

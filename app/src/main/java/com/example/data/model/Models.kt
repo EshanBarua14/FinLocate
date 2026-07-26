@@ -180,6 +180,59 @@ data class TransactionEntity(
 )
 
 @Entity(
+    tableName = "expenses",
+    indices = [
+        Index(value = ["date"]),
+        Index(value = ["taxCategoryId"])
+    ]
+)
+data class ExpenseEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val amount: Double,
+    val currency: String = "USD",
+    val date: Long = System.currentTimeMillis(),
+    val taxCategoryId: Long = 0L,
+    val merchant: String = "",
+    val notes: String = "",
+    val receiptPath: String = "",
+    val createdAt: Long = System.currentTimeMillis()
+)
+
+@Entity(
+    tableName = "tax_categories",
+    indices = [Index(value = ["name"], unique = true)]
+)
+data class TaxCategoryEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    val code: String = "",
+    val description: String = "",
+    val isDeductible: Boolean = true,
+    val defaultRate: Double = 0.0,
+    val monthlyCap: Double = 0.0 // monthly spending cap limit
+)
+
+@Entity(
+    tableName = "recurring_expenses",
+    indices = [
+        Index(value = ["taxCategoryId"])
+    ]
+)
+data class RecurringExpenseEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val amount: Double,
+    val currency: String = "USD",
+    val taxCategoryId: Long = 0L,
+    val merchant: String = "",
+    val notes: String = "",
+    val frequency: String = "MONTHLY", // DAILY, WEEKLY, MONTHLY, YEARLY
+    val lastExecutedAt: Long = 0L,
+    val nextDueAt: Long = System.currentTimeMillis(),
+    val isActive: Boolean = true,
+    val createdAt: Long = System.currentTimeMillis()
+)
+
+@Entity(
     tableName = "budgets",
     indices = [
         Index(value = ["categoryId", "month"], unique = true)

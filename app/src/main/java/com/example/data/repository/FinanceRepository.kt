@@ -21,10 +21,16 @@ class FinanceRepository(private val db: AppDatabase) {
     private val userDebtDao = db.userDebtDao()
     private val savingsGoalDao = db.savingsGoalDao()
     private val transactionExchangeRateLogDao = db.transactionExchangeRateLogDao()
+    private val expenseDao = db.expenseDao()
+    private val taxCategoryDao = db.taxCategoryDao()
+    private val recurringExpenseDao = db.recurringExpenseDao()
 
     // --- Observable Flows ---
     val allAccounts: Flow<List<AccountEntity>> = accountDao.getAllAccounts()
     val allTransactions: Flow<List<TransactionEntity>> = transactionDao.getAllTransactions()
+    val allExpenses: Flow<List<ExpenseEntity>> = expenseDao.getAllExpenses()
+    val allTaxCategories: Flow<List<TaxCategoryEntity>> = taxCategoryDao.getAllTaxCategories()
+    val allRecurringExpenses: Flow<List<RecurringExpenseEntity>> = recurringExpenseDao.getAllActiveRecurringExpenses()
     val allExchangeRateLogs: Flow<List<TransactionExchangeRateLogEntity>> = transactionExchangeRateLogDao.getAllLogsFlow()
     val allInsights: Flow<List<InsightEntity>> = insightDao.getAllInsights()
     val activeCountrySetting: Flow<CountrySettingEntity?> = countrySettingDao.getCountrySettingFlow()
@@ -584,5 +590,41 @@ class FinanceRepository(private val db: AppDatabase) {
             e.printStackTrace()
             false
         }
+    }
+
+    suspend fun insertExpense(expense: ExpenseEntity): Long = withContext(Dispatchers.IO) {
+        expenseDao.insertExpense(expense)
+    }
+
+    suspend fun updateExpense(expense: ExpenseEntity) = withContext(Dispatchers.IO) {
+        expenseDao.updateExpense(expense)
+    }
+
+    suspend fun deleteExpense(expense: ExpenseEntity) = withContext(Dispatchers.IO) {
+        expenseDao.deleteExpense(expense)
+    }
+
+    suspend fun insertTaxCategory(taxCategory: TaxCategoryEntity): Long = withContext(Dispatchers.IO) {
+        taxCategoryDao.insertTaxCategory(taxCategory)
+    }
+
+    suspend fun updateTaxCategory(taxCategory: TaxCategoryEntity) = withContext(Dispatchers.IO) {
+        taxCategoryDao.updateTaxCategory(taxCategory)
+    }
+
+    suspend fun getAllTaxCategoriesStatic(): List<TaxCategoryEntity> = withContext(Dispatchers.IO) {
+        taxCategoryDao.getAllTaxCategoriesStatic()
+    }
+
+    suspend fun insertRecurringExpense(recurringExpense: RecurringExpenseEntity): Long = withContext(Dispatchers.IO) {
+        recurringExpenseDao.insertRecurringExpense(recurringExpense)
+    }
+
+    suspend fun updateRecurringExpense(recurringExpense: RecurringExpenseEntity) = withContext(Dispatchers.IO) {
+        recurringExpenseDao.updateRecurringExpense(recurringExpense)
+    }
+
+    suspend fun deleteRecurringExpense(recurringExpense: RecurringExpenseEntity) = withContext(Dispatchers.IO) {
+        recurringExpenseDao.deleteRecurringExpense(recurringExpense)
     }
 }

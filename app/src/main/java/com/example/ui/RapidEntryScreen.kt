@@ -285,10 +285,39 @@ fun RapidEntryScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(16.dp),
-                    contentAlignment = Alignment.CenterEnd
+                        .padding(16.dp)
                 ) {
+                    // Microphone Voice Input Button on left
+                    IconButton(
+                        onClick = {
+                            val intent = android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                                putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                                putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+                                putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Say something like 'I spent 50 dollars on groceries'")
+                            }
+                            try {
+                                // Trigger voice or preset mode
+                                isFormMode = true
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        },
+                        modifier = Modifier
+                            .align(Alignment.CenterStart)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.secondary.copy(alpha = 0.15f))
+                            .testTag("mic_input_btn")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Mic,
+                            contentDescription = "Microphone Voice Input",
+                            tint = MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+
                     Column(
+                        modifier = Modifier.align(Alignment.CenterEnd),
                         horizontalAlignment = Alignment.End,
                         verticalArrangement = Arrangement.Center
                     ) {

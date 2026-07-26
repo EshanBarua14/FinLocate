@@ -802,6 +802,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val allTransactions: StateFlow<List<TransactionEntity>> = repository.allTransactions
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val allExpenses: StateFlow<List<ExpenseEntity>> = repository.allExpenses
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val allTaxCategories: StateFlow<List<TaxCategoryEntity>> = repository.allTaxCategories
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val allRecurringExpenses: StateFlow<List<RecurringExpenseEntity>> = repository.allRecurringExpenses
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val categories: StateFlow<List<CategoryEntity>> = repository.getAllCategories()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -1101,6 +1110,145 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } catch (e: Exception) {
             originalTimestamp
         }
+    }
+
+    // --- Expense & Tax Category Coroutines Persistence Operations ---
+    fun addExpense(
+        amount: Double,
+        currency: String = "USD",
+        date: Long = System.currentTimeMillis(),
+        taxCategoryId: Long = 0L,
+        merchant: String = "",
+        notes: String = "",
+        receiptPath: String = ""
+    ) {
+        viewModelScope.launch {
+            val expense = ExpenseEntity(
+                amount = amount,
+                currency = currency,
+                date = date,
+                taxCategoryId = taxCategoryId,
+                merchant = merchant,
+                notes = notes,
+                receiptPath = receiptPath
+            )
+            repository.insertExpense(expense)
+            postNotification("Expense added: $currency $amount")
+            _uiEvents.emit(UiEvent.ExpenseSubmitted)
+        }
+    }
+
+    fun deleteExpense(expense: ExpenseEntity) {
+        viewModelScope.launch {
+            repository.deleteExpense(expense)
+            postNotification("Expense removed successfully")
+        }
+    }
+
+    fun addTaxCategory(name: String, code: String = "", description: String = "", isDeductible: Boolean = true, defaultRate: Double = 0.0, monthlyCap: Double = 0.0) {
+        viewModelScope.launch {
+            val tc = TaxCategoryEntity(
+                name = name,
+                code = code,
+                description = description,
+                isDeductible = isDeductible,
+                defaultRate = defaultRate,
+                monthlyCap = monthlyCap
+            )
+            repository.insertTaxCategory(tc)
+            postNotification("Tax Category '$name' created successfully")
+        }
+    }
+
+    fun updateTaxCategoryCap(taxCategory: TaxCategoryEntity, newCap: Double) {
+        viewModelScope.launch {
+            val updated = taxCategory.copy(monthlyCap = newCap)
+            repository.updateTaxCategory(updated)
+            postNotification("Updated monthly spending cap for ${taxCategory.name} to $newCap")
+        }
+    }
+
+    // --- Recurring Expense Operations ---
+    fun addRecurringExpense(
+        amount: Double,
+        currency: String = "USD",
+        taxCategoryId: Long = 0L,
+        merchant: String = "",
+        notes: String = "",
+        frequency: String = "MONTHLY"
+    ) {
+        viewModelScope.launch {
+            val recurring = RecurringExpenseEntity(
+                amount = amount,
+                currency = currency,
+                taxCategoryId = taxCategoryId,
+                merchant = merchant,
+                notes = notes,
+                frequency = frequency,
+                nextDueAt = System.currentTimeMillis() + 86400000L // default next due tomorrow or today
+            )
+            repository.insertRecurringExpense(recurring)
+            postNotification("Recurring $frequency expense ($currency $amount) scheduled")
+            com.example.data.worker.RecurringExpenseWorker.scheduleWorker(getApplication())
+        }
+    }
+
+    fun deleteRecurringExpense(recurringExpense: RecurringExpenseEntity) {
+        viewModelScope.launch {
+            repository.deleteRecurringExpense(recurringExpense)
+            postNotification("Recurring expense removed")
+        }
+    }
+
+    fun scheduleRecurringExpenseWorker() {
+        com.example.data.worker.RecurringExpenseWorker.scheduleWorker(getApplication())
+    }
+
+    // --- Database Encryption & Encrypted Backup Operations ---
+    fun exportEncryptedDatabaseBackup(passphrase: String, onResult: (Boolean, String) -> Unit) {
+        if (passphrase.length < 4) {
+            onResult(false, "Passphrase must be at least 4 characters long")
+            return
+        }
+        viewModelScope.launch {
+            val result = com.example.data.database.DatabaseEncryptionBackupManager.exportAndEncryptDatabase(
+                context = getApplication(),
+                passphrase = passphrase
+            )
+            result.fold(
+                onSuccess = { metadata ->
+                    val msg = "Encrypted backup saved: ${metadata.fileName} (${metadata.sizeBytes / 1024} KB)"
+                    postNotification(msg)
+                    onResult(true, metadata.filePath)
+                },
+                onFailure = { err ->
+                    onResult(false, err.message ?: "Backup encryption failed")
+                }
+            )
+        }
+    }
+
+    fun restoreEncryptedDatabaseBackup(backupFile: java.io.File, passphrase: String, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            val result = com.example.data.database.DatabaseEncryptionBackupManager.decryptAndRestoreDatabase(
+                context = getApplication(),
+                backupFile = backupFile,
+                passphrase = passphrase
+            )
+            result.fold(
+                onSuccess = {
+                    postNotification("Database successfully restored from encrypted backup! Please restart app.")
+                    onResult(true, "Database successfully restored!")
+                },
+                onFailure = { err ->
+                    onResult(false, err.message ?: "Decryption or restore failed. Check passphrase.")
+                }
+            )
+        }
+    }
+
+    fun getEncryptedBackupsList(): List<com.example.data.database.DatabaseEncryptionBackupManager.BackupMetadata> {
+        return com.example.data.database.DatabaseEncryptionBackupManager.listBackups(getApplication())
     }
 
     // Budgets for the active month
@@ -2968,4 +3116,94 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         result.add(curVal.toString())
         return result
     }
+
+    fun importExpensesFromCsv(csvText: String, onResult: (Boolean, Int, String) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val lines = csvText.lineSequence()
+                    .map { it.trim() }
+                    .filter { it.isNotEmpty() }
+                    .toList()
+
+                if (lines.isEmpty()) {
+                    onResult(false, 0, "CSV content is empty.")
+                    return@launch
+                }
+
+                var importedCount = 0
+                val allCats = categories.value
+                val defaultCatId = allCats.firstOrNull()?.id ?: 1L
+                val defaultAccId = accounts.value.firstOrNull()?.id ?: 1L
+
+                val firstLineTokens = parseCsvLine(lines[0])
+                val hasHeader = firstLineTokens.any { token ->
+                    val lower = token.lowercase(Locale.US)
+                    lower.contains("amount") || lower.contains("date") || lower.contains("merchant") || lower.contains("category")
+                }
+
+                val dataLines = if (hasHeader) lines.drop(1) else lines
+
+                for (line in dataLines) {
+                    val tokens = parseCsvLine(line).map { it.trim().removeSurrounding("\"") }
+                    if (tokens.isNotEmpty()) {
+                        var parsedDate = System.currentTimeMillis()
+                        var parsedAmount = 0.0
+                        var parsedMerchant = ""
+                        var parsedNotes = ""
+                        var parsedCategoryName = ""
+
+                        for (token in tokens) {
+                            val amtCandidate = token.toDoubleOrNull()
+                            if (amtCandidate != null && amtCandidate > 0 && parsedAmount == 0.0) {
+                                parsedAmount = Math.abs(amtCandidate)
+                                continue
+                            }
+
+                            if (token.matches("""\d{4}-\d{2}-\d{2}""".toRegex())) {
+                                try {
+                                    val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+                                    val d = sdf.parse(token)
+                                    if (d != null) parsedDate = d.time
+                                } catch (e: Exception) {}
+                                continue
+                            }
+
+                            if (parsedMerchant.isEmpty() && token.length in 2..40 && !token.startsWith("USD") && !token.startsWith("EUR")) {
+                                parsedMerchant = token
+                            } else if (token.length > 1) {
+                                if (allCats.any { it.name.equals(token, ignoreCase = true) }) {
+                                    parsedCategoryName = token
+                                } else {
+                                    parsedNotes = if (parsedNotes.isEmpty()) token else "$parsedNotes | $token"
+                                }
+                            }
+                        }
+
+                        if (parsedAmount > 0) {
+                            val categoryId = allCats.firstOrNull { it.name.equals(parsedCategoryName, ignoreCase = true) }?.id ?: defaultCatId
+                            addTransaction(
+                                amount = parsedAmount,
+                                type = "EXPENSE",
+                                categoryId = categoryId,
+                                accountId = defaultAccId,
+                                merchant = parsedMerchant.ifEmpty { "CSV Import" },
+                                notes = parsedNotes.ifEmpty { "Imported from CSV" },
+                                customTimestamp = parsedDate
+                            )
+                            importedCount++
+                        }
+                    }
+                }
+
+                if (importedCount > 0) {
+                    onResult(true, importedCount, "Successfully imported $importedCount expense records into Room database!")
+                } else {
+                    onResult(false, 0, "No valid transaction rows found in CSV.")
+                }
+            } catch (e: Exception) {
+                onResult(false, 0, "Error parsing CSV: ${e.localizedMessage}")
+            }
+        }
+    }
 }
+

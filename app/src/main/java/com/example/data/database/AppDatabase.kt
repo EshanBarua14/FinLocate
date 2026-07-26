@@ -21,9 +21,12 @@ import com.example.data.model.*
         ExchangeRateEntity::class,
         UserDebtEntity::class,
         SavingsGoalEntity::class,
-        TransactionExchangeRateLogEntity::class
+        TransactionExchangeRateLogEntity::class,
+        ExpenseEntity::class,
+        TaxCategoryEntity::class,
+        RecurringExpenseEntity::class
     ],
-    version = 12, // bumped version to 12 to support TransactionExchangeRateLogEntity
+    version = 14, // bumped version to 14 to support RecurringExpenseEntity and TaxCategoryEntity monthly caps
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -41,6 +44,9 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun userDebtDao(): UserDebtDao
     abstract fun savingsGoalDao(): SavingsGoalDao
     abstract fun transactionExchangeRateLogDao(): TransactionExchangeRateLogDao
+    abstract fun expenseDao(): ExpenseDao
+    abstract fun taxCategoryDao(): TaxCategoryDao
+    abstract fun recurringExpenseDao(): RecurringExpenseDao
 
     companion object {
         @Volatile

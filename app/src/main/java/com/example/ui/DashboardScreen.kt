@@ -221,6 +221,19 @@ fun DashboardScreen(
         }
 
         item {
+            SpendingTrendCalendarCard(
+                viewModel = viewModel,
+                isDark = isDark
+            )
+        }
+
+        item {
+            FinancialAchievementsCard(
+                viewModel = viewModel
+            )
+        }
+
+        item {
             D3CalendarHeatmapCard(
                 viewModel = viewModel,
                 isDark = isDark
@@ -4728,4 +4741,431 @@ fun DatabasePruneCard(
         }
     }
 }
+
+@Composable
+fun SpendingTrendCalendarCard(
+    viewModel: MainViewModel,
+    isDark: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val allExpenses by viewModel.allExpenses.collectAsState()
+    val config by viewModel.activeCountryConfig.collectAsState()
+
+    var calendarMonthOffset by remember { mutableIntStateOf(0) }
+    var selectedDayNumber by remember { mutableStateOf<Int?>(null) }
+
+    val cal = remember(calendarMonthOffset) {
+        Calendar.getInstance().apply {
+            add(Calendar.MONTH, calendarMonthOffset)
+            set(Calendar.DAY_OF_MONTH, 1)
+        }
+    }
+
+    val year = cal.get(Calendar.YEAR)
+    val month = cal.get(Calendar.MONTH)
+    val monthName = SimpleDateFormat("MMMM yyyy", Locale.US).format(cal.time)
+    val daysInMonth = cal.getActualMaximum(Calendar.DAY_OF_MONTH)
+    val firstDayOfWeek = cal.get(Calendar.DAY_OF_WEEK) - 1
+
+    val monthExpenses = remember(allExpenses, year, month) {
+        allExpenses.filter { exp ->
+            val expCal = Calendar.getInstance().apply { timeInMillis = exp.date }
+            expCal.get(Calendar.YEAR) == year && expCal.get(Calendar.MONTH) == month
+        }
+    }
+
+    val dailyTotals = remember(monthExpenses) {
+        val map = mutableMapOf<Int, Double>()
+        monthExpenses.forEach { exp ->
+            val expCal = Calendar.getInstance().apply { timeInMillis = exp.date }
+            val day = expCal.get(Calendar.DAY_OF_MONTH)
+            map[day] = (map[day] ?: 0.0) + exp.amount
+        }
+        map
+    }
+
+    val activeDaysCount = dailyTotals.count { it.value > 0 }
+    val totalMonthSpend = dailyTotals.values.sum()
+    val avgDailySpend = if (activeDaysCount > 0) totalMonthSpend / activeDaysCount else 0.0
+
+    val highSpendDays = remember(dailyTotals, avgDailySpend) {
+        if (avgDailySpend <= 0) emptySet<Int>()
+        else dailyTotals.filter { it.value >= avgDailySpend * 1.5 }.keys
+    }
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(20.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = modifier.fillMaxWidth().testTag("spending_trend_calendar_card")
+    ) {
+        Column(modifier = Modifier.padding(18.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Icon(imageVector = Icons.Default.CalendarMonth, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                        Text(
+                            text = "SPENDING TREND CALENDAR",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    Text(
+                        text = "Highlights unusually high spend days (>1.5x avg)",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = { calendarMonthOffset-- },
+                        modifier = Modifier.size(32.dp).testTag("prev_month_btn")
+                    ) {
+                        Icon(imageVector = Icons.Default.ChevronLeft, contentDescription = "Prev Month")
+                    }
+                    Text(
+                        text = monthName,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(horizontal = 4.dp)
+                    )
+                    IconButton(
+                        onClick = { calendarMonthOffset++ },
+                        modifier = Modifier.size(32.dp).testTag("next_month_btn")
+                    ) {
+                        Icon(imageVector = Icons.Default.ChevronRight, contentDescription = "Next Month")
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Column(modifier = Modifier.padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("Avg Daily Spend", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("${config.currencySymbol}${String.format(Locale.US, "%.2f", avgDailySpend)}", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                Surface(
+                    color = ExpenseRose.copy(alpha = 0.15f),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Column(modifier = Modifier.padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("High Spend Days", fontSize = 10.sp, color = ExpenseRose)
+                        Text("${highSpendDays.size} Days 🔥", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = ExpenseRose)
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            val daysOfWeek = listOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceAround) {
+                daysOfWeek.forEach { day ->
+                    Text(text = day, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center, modifier = Modifier.weight(1f))
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            val totalCells = firstDayOfWeek + daysInMonth
+            val totalRows = (totalCells + 6) / 7
+
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                for (row in 0 until totalRows) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        for (col in 0..6) {
+                            val cellIndex = row * 7 + col
+                            val dayNum = cellIndex - firstDayOfWeek + 1
+
+                            if (cellIndex < firstDayOfWeek || dayNum > daysInMonth) {
+                                Box(modifier = Modifier.weight(1f).aspectRatio(1f))
+                            } else {
+                                val daySpent = dailyTotals[dayNum] ?: 0.0
+                                val isHighSpend = highSpendDays.contains(dayNum)
+                                val isSelected = selectedDayNumber == dayNum
+
+                                val bgColor = when {
+                                    isSelected -> MaterialTheme.colorScheme.primary
+                                    isHighSpend -> ExpenseRose
+                                    daySpent > 0 -> FintechGreen.copy(alpha = 0.25f)
+                                    else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                                }
+
+                                val textColor = when {
+                                    isSelected || isHighSpend -> Color.White
+                                    else -> MaterialTheme.colorScheme.onSurface
+                                }
+
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .aspectRatio(1f)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(bgColor)
+                                        .clickable { selectedDayNumber = if (isSelected) null else dayNum }
+                                        .testTag(if (isHighSpend) "high_spend_day_$dayNum" else "calendar_day_$dayNum"),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text(text = "$dayNum", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = textColor)
+                                        if (isHighSpend) {
+                                            Text(text = "🔥", fontSize = 8.sp)
+                                        } else if (daySpent > 0) {
+                                            Text(text = "${config.currencySymbol}${daySpent.toInt()}", fontSize = 8.sp, color = textColor.copy(alpha = 0.8f))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (selectedDayNumber != null) {
+                val day = selectedDayNumber!!
+                val daySpent = dailyTotals[day] ?: 0.0
+                val dayExps = monthExpenses.filter { exp ->
+                    val expCal = Calendar.getInstance().apply { timeInMillis = exp.date }
+                    expCal.get(Calendar.DAY_OF_MONTH) == day
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth().testTag("day_breakdown_card")
+                ) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Expenses for $monthName $day", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Text("Total: ${config.currencySymbol}${String.format(Locale.US, "%.2f", daySpent)}", fontWeight = FontWeight.ExtraBold, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                        }
+
+                        if (dayExps.isEmpty()) {
+                            Text("No recorded transactions on this date.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        } else {
+                            dayExps.forEach { exp ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("• ${exp.merchant.ifEmpty { "Expense" }}", fontSize = 11.sp)
+                                    Text("${config.currencySymbol}${exp.amount}", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun FinancialAchievementsCard(
+    viewModel: MainViewModel,
+    modifier: Modifier = Modifier
+) {
+    val allExpenses by viewModel.allExpenses.collectAsState()
+    val allBudgets by viewModel.allCategoryBudgets.collectAsState()
+    val taxCategories by viewModel.allTaxCategories.collectAsState()
+
+    val (isBudgetMasterUnlocked, budgetConsecutiveMonths) = remember(allExpenses, allBudgets) {
+        var consecutiveCount = 0
+        for (i in 0 until 3) {
+            val checkCal = Calendar.getInstance().apply { add(Calendar.MONTH, -i) }
+            val y = checkCal.get(Calendar.YEAR)
+            val m = checkCal.get(Calendar.MONTH)
+
+            val monthExps = allExpenses.filter { exp ->
+                val c = Calendar.getInstance().apply { timeInMillis = exp.date }
+                c.get(Calendar.YEAR) == y && c.get(Calendar.MONTH) == m
+            }
+            val monthSpent = monthExps.sumOf { it.amount }
+            val monthCap = allBudgets.sumOf { it.monthlyLimit }
+
+            if (monthCap > 0 && monthSpent <= monthCap) {
+                consecutiveCount++
+            }
+        }
+        Pair(consecutiveCount >= 3, consecutiveCount)
+    }
+
+    val isTaxGuardianUnlocked = remember(taxCategories, allExpenses) {
+        taxCategories.isNotEmpty() && taxCategories.all { tc ->
+            val curMonthSpent = allExpenses.sumOf { exp -> if (exp.taxCategoryId == tc.id) exp.amount else 0.0 }
+            tc.monthlyCap == 0.0 || curMonthSpent <= tc.monthlyCap
+        }
+    }
+
+    val isConsistencyStreakUnlocked = remember(allExpenses) {
+        val daysWithExp = allExpenses.map { exp ->
+            val c = Calendar.getInstance().apply { timeInMillis = exp.date }
+            "${c.get(Calendar.YEAR)}-${c.get(Calendar.MONTH)}-${c.get(Calendar.DAY_OF_MONTH)}"
+        }.toSet()
+        daysWithExp.size >= 7
+    }
+
+    val isMultiCurrencyMavenUnlocked = remember(allExpenses) {
+        allExpenses.map { it.currency }.toSet().size >= 2
+    }
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(20.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = modifier.fillMaxWidth().testTag("financial_achievements_card")
+    ) {
+        Column(modifier = Modifier.padding(18.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Icon(imageVector = Icons.Default.EmojiEvents, contentDescription = null, tint = AccentGold, modifier = Modifier.size(22.dp))
+                        Text(
+                            text = "FINANCIAL ACHIEVEMENTS",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    Text(
+                        text = "Badges & milestones unlocked based on budget discipline",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Surface(
+                    color = AccentGold.copy(alpha = 0.15f),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    val unlockedCount = listOf(isBudgetMasterUnlocked, isTaxGuardianUnlocked, isConsistencyStreakUnlocked, isMultiCurrencyMavenUnlocked).count { it }
+                    Text(
+                        text = "$unlockedCount / 4 Badges",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = AccentGold,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                AchievementBadgeItem(
+                    title = "🛡️ Budget Master",
+                    description = "Stay under defined monthly budget caps for 3 consecutive months",
+                    progressText = "$budgetConsecutiveMonths / 3 Months",
+                    progressRatio = budgetConsecutiveMonths / 3f,
+                    isUnlocked = isBudgetMasterUnlocked,
+                    testTag = "badge_budget_master"
+                )
+
+                AchievementBadgeItem(
+                    title = "🎯 Tax Cap Guardian",
+                    description = "Keep all tax category spending within defined monthly caps",
+                    progressText = if (isTaxGuardianUnlocked) "Completed!" else "In Progress",
+                    progressRatio = if (isTaxGuardianUnlocked) 1f else 0.5f,
+                    isUnlocked = isTaxGuardianUnlocked,
+                    testTag = "badge_tax_guardian"
+                )
+
+                AchievementBadgeItem(
+                    title = "⚡ Consistency Hero",
+                    description = "Log transactions on 7 or more distinct days in Room database",
+                    progressText = if (isConsistencyStreakUnlocked) "Unlocked!" else "Keep logging",
+                    progressRatio = if (isConsistencyStreakUnlocked) 1f else 0.4f,
+                    isUnlocked = isConsistencyStreakUnlocked,
+                    testTag = "badge_consistency_hero"
+                )
+
+                AchievementBadgeItem(
+                    title = "🌐 Multi-Currency Maven",
+                    description = "Track expenses in 2 or more world currencies",
+                    progressText = if (isMultiCurrencyMavenUnlocked) "Unlocked!" else "1 / 2 Currencies",
+                    progressRatio = if (isMultiCurrencyMavenUnlocked) 1f else 0.5f,
+                    isUnlocked = isMultiCurrencyMavenUnlocked,
+                    testTag = "badge_multi_currency"
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun AchievementBadgeItem(
+    title: String,
+    description: String,
+    progressText: String,
+    progressRatio: Float,
+    isUnlocked: Boolean,
+    testTag: String
+) {
+    val containerColor = if (isUnlocked) AccentGold.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+    val borderColor = if (isUnlocked) AccentGold else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = containerColor),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, borderColor),
+        modifier = Modifier.fillMaxWidth().testTag(testTag)
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp).fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(title, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = if (isUnlocked) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (isUnlocked) {
+                        Surface(color = AccentGold, shape = RoundedCornerShape(4.dp)) {
+                            Text("UNLOCKED", fontSize = 8.sp, fontWeight = FontWeight.Black, color = Color.White, modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp))
+                        }
+                    }
+                }
+                Text(description, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                LinearProgressIndicator(
+                    progress = { progressRatio.coerceIn(0f, 1f) },
+                    modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
+                    color = if (isUnlocked) AccentGold else MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Text(progressText, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = if (isUnlocked) AccentGold else MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
 

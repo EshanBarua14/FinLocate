@@ -25,6 +25,8 @@ import androidx.compose.ui.graphics.Color
 
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material.icons.filled.Calculate
@@ -266,6 +268,11 @@ fun TaxScreen(
                 categories = categories,
                 formatCurrency = { viewModel.formatCurrency(it) }
             )
+        }
+
+        // --- TAX CATEGORY MONTHLY SPENDING CAPS COMPONENT ---
+        item {
+            TaxCategorySpendingCapCard(viewModel = viewModel)
         }
 
         // --- SECURE CLOUD BACKUP & END-TO-END ENCRYPTION ---
@@ -1561,5 +1568,309 @@ fun TaxGroupDonutChartCard(
                 }
             }
         }
+    }
+}
+
+@Composable
+fun TaxCategorySpendingCapCard(
+    viewModel: MainViewModel,
+    modifier: Modifier = Modifier
+) {
+    val taxCategories by viewModel.allTaxCategories.collectAsState()
+    val allExpenses by viewModel.allExpenses.collectAsState()
+    val config by viewModel.activeCountryConfig.collectAsState()
+
+    var editingCategory by remember { mutableStateOf<com.example.data.model.TaxCategoryEntity?>(null) }
+    var newCapInput by remember { mutableStateOf("") }
+    var showAddCategoryDialog by remember { mutableStateOf(false) }
+
+    var newCatName by remember { mutableStateOf("") }
+    var newCatCode by remember { mutableStateOf("") }
+    var newCatCap by remember { mutableStateOf("") }
+
+    val currentMonthExpenses = remember(allExpenses) {
+        val cal = java.util.Calendar.getInstance()
+        val currentYear = cal.get(java.util.Calendar.YEAR)
+        val currentMonth = cal.get(java.util.Calendar.MONTH)
+
+        allExpenses.filter { exp ->
+            val expCal = java.util.Calendar.getInstance()
+            expCal.timeInMillis = exp.date
+            expCal.get(java.util.Calendar.YEAR) == currentYear && expCal.get(java.util.Calendar.MONTH) == currentMonth
+        }
+    }
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(20.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = modifier.fillMaxWidth().testTag("tax_category_spending_caps_card")
+    ) {
+        Column(modifier = Modifier.padding(20.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = "TAX CATEGORY SPENDING CAPS",
+                        fontWeight = FontWeight.ExtraBold,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "Monthly caps & progress tracking for tax-deductible items",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Button(
+                    onClick = { showAddCategoryDialog = true },
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.testTag("add_tax_category_btn")
+                ) {
+                    Text("+ Category", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            if (taxCategories.isEmpty()) {
+                Text(
+                    text = "No tax categories defined yet. Add custom categories with spending caps above.",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    taxCategories.forEach { tc ->
+                        val spent = currentMonthExpenses
+                            .filter { it.taxCategoryId == tc.id }
+                            .sumOf { it.amount }
+
+                        val cap = tc.monthlyCap
+                        val ratio = if (cap > 0) (spent / cap).toFloat().coerceIn(0f, 1f) else 0f
+                        val isExceeded = cap > 0 && spent > cap
+                        val isNearLimit = cap > 0 && spent >= cap * 0.8 && !isExceeded
+
+                        val progressColor = when {
+                            isExceeded -> ExpenseRose
+                            isNearLimit -> AccentGold
+                            else -> FintechGreen
+                        }
+
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(14.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = tc.name,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        if (tc.description.isNotEmpty()) {
+                                            Text(
+                                                text = tc.description,
+                                                fontSize = 10.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        if (isExceeded) {
+                                            Surface(
+                                                color = ExpenseRose.copy(alpha = 0.15f),
+                                                shape = RoundedCornerShape(6.dp)
+                                            ) {
+                                                Text(
+                                                    text = "⚠️ EXCEEDED",
+                                                    fontSize = 9.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = ExpenseRose,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                        } else if (isNearLimit) {
+                                            Surface(
+                                                color = AccentGold.copy(alpha = 0.15f),
+                                                shape = RoundedCornerShape(6.dp)
+                                            ) {
+                                                Text(
+                                                    text = "⚡ NEAR CAP",
+                                                    fontSize = 9.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = AccentGold,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                        }
+
+                                        IconButton(
+                                            onClick = {
+                                                editingCategory = tc
+                                                newCapInput = if (tc.monthlyCap > 0) tc.monthlyCap.toString() else ""
+                                            },
+                                            modifier = Modifier.size(28.dp).testTag("edit_tax_cap_${tc.id}")
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Edit,
+                                                contentDescription = "Set Cap",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "Spent: ${config.currencySymbol}${String.format(Locale.US, "%.2f", spent)}",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = if (cap > 0) "Cap: ${config.currencySymbol}${String.format(Locale.US, "%.2f", cap)}" else "No Cap Set",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (cap > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.height(6.dp))
+
+                                if (cap > 0) {
+                                    LinearProgressIndicator(
+                                        progress = { ratio },
+                                        modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
+                                        color = progressColor,
+                                        trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (editingCategory != null) {
+        val tc = editingCategory!!
+        AlertDialog(
+            onDismissRequest = { editingCategory = null },
+            title = { Text("Set Spending Cap: ${tc.name}") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Enter maximum monthly expense budget cap for ${tc.name}:", fontSize = 12.sp)
+                    OutlinedTextField(
+                        value = newCapInput,
+                        onValueChange = { newCapInput = it },
+                        label = { Text("Monthly Cap (${config.currencySymbol})") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().testTag("edit_cap_input_field")
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val capVal = newCapInput.toDoubleOrNull() ?: 0.0
+                        viewModel.updateTaxCategoryCap(tc, capVal)
+                        editingCategory = null
+                    },
+                    modifier = Modifier.testTag("save_tax_cap_btn")
+                ) {
+                    Text("Save Cap")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { editingCategory = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (showAddCategoryDialog) {
+        AlertDialog(
+            onDismissRequest = { showAddCategoryDialog = false },
+            title = { Text("Add Tax Category with Cap") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = newCatName,
+                        onValueChange = { newCatName = it },
+                        label = { Text("Category Name (e.g. Health Insurance)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().testTag("add_tax_cat_name_input")
+                    )
+                    OutlinedTextField(
+                        value = newCatCode,
+                        onValueChange = { newCatCode = it },
+                        label = { Text("Tax Code (e.g. SEC-80D / W2)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = newCatCap,
+                        onValueChange = { newCatCap = it },
+                        label = { Text("Monthly Spending Cap (${config.currencySymbol})") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().testTag("add_tax_cat_cap_input")
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (newCatName.isNotBlank()) {
+                            val capVal = newCatCap.toDoubleOrNull() ?: 0.0
+                            viewModel.addTaxCategory(
+                                name = newCatName,
+                                code = newCatCode,
+                                monthlyCap = capVal
+                            )
+                            newCatName = ""
+                            newCatCode = ""
+                            newCatCap = ""
+                            showAddCategoryDialog = false
+                        }
+                    },
+                    modifier = Modifier.testTag("submit_tax_category_btn")
+                ) {
+                    Text("Add Category")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddCategoryDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }

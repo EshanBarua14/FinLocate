@@ -233,6 +233,66 @@ interface SavingsGoalDao {
 }
 
 @Dao
+interface ExpenseDao {
+    @Query("SELECT * FROM expenses ORDER BY date DESC")
+    fun getAllExpenses(): Flow<List<ExpenseEntity>>
+
+    @Query("SELECT * FROM expenses ORDER BY date DESC")
+    suspend fun getAllExpensesStatic(): List<ExpenseEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertExpense(expense: ExpenseEntity): Long
+
+    @Update
+    suspend fun updateExpense(expense: ExpenseEntity)
+
+    @Delete
+    suspend fun deleteExpense(expense: ExpenseEntity)
+
+    @Query("SELECT * FROM expenses WHERE id = :id LIMIT 1")
+    suspend fun getExpenseById(id: Long): ExpenseEntity?
+}
+
+@Dao
+interface TaxCategoryDao {
+    @Query("SELECT * FROM tax_categories ORDER BY name ASC")
+    fun getAllTaxCategories(): Flow<List<TaxCategoryEntity>>
+
+    @Query("SELECT * FROM tax_categories ORDER BY name ASC")
+    suspend fun getAllTaxCategoriesStatic(): List<TaxCategoryEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertTaxCategory(taxCategory: TaxCategoryEntity): Long
+
+    @Update
+    suspend fun updateTaxCategory(taxCategory: TaxCategoryEntity)
+
+    @Query("DELETE FROM tax_categories")
+    suspend fun clearTaxCategories()
+}
+
+@Dao
+interface RecurringExpenseDao {
+    @Query("SELECT * FROM recurring_expenses WHERE isActive = 1 ORDER BY nextDueAt ASC")
+    fun getAllActiveRecurringExpenses(): Flow<List<RecurringExpenseEntity>>
+
+    @Query("SELECT * FROM recurring_expenses WHERE isActive = 1 ORDER BY nextDueAt ASC")
+    suspend fun getAllActiveRecurringExpensesStatic(): List<RecurringExpenseEntity>
+
+    @Query("SELECT * FROM recurring_expenses WHERE isActive = 1 AND nextDueAt <= :currentTime")
+    suspend fun getDueRecurringExpenses(currentTime: Long): List<RecurringExpenseEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertRecurringExpense(recurringExpense: RecurringExpenseEntity): Long
+
+    @Update
+    suspend fun updateRecurringExpense(recurringExpense: RecurringExpenseEntity)
+
+    @Delete
+    suspend fun deleteRecurringExpense(recurringExpense: RecurringExpenseEntity)
+}
+
+@Dao
 interface TransactionExchangeRateLogDao {
     @Query("SELECT * FROM transaction_exchange_rate_logs ORDER BY timestamp DESC")
     fun getAllLogsFlow(): Flow<List<TransactionExchangeRateLogEntity>>

@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material3.*
@@ -270,6 +271,9 @@ fun BudgetScreen(
                     }
                 }
             }
+
+            // --- RECURRING PAYMENTS & REMINDERS COMPONENT ---
+            RecurringExpensesAndRemindersCard(viewModel = viewModel)
 
             // --- BUDGET TEMPLATES CARD ---
             Card(
@@ -1611,5 +1615,222 @@ fun InteractiveComparativeChart(
                 }
             }
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun RecurringExpensesAndRemindersCard(
+    viewModel: MainViewModel,
+    modifier: Modifier = Modifier
+) {
+    val recurringExpenses by viewModel.allRecurringExpenses.collectAsState()
+    val taxCategories by viewModel.allTaxCategories.collectAsState()
+    val config by viewModel.activeCountryConfig.collectAsState()
+
+    var showAddDialog by remember { mutableStateOf(false) }
+    var merchantName by remember { mutableStateOf("") }
+    var amountInput by remember { mutableStateOf("") }
+    var selectedFrequency by remember { mutableStateOf("MONTHLY") }
+    var selectedTaxCategoryId by remember { mutableStateOf(0L) }
+
+    val currentTime = System.currentTimeMillis()
+    val upcomingDue = remember(recurringExpenses, currentTime) {
+        recurringExpenses.filter { it.nextDueAt <= currentTime + 3 * 86400000L }
+    }
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .testTag("recurring_expenses_reminders_card")
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = "RECURRING PAYMENTS & AUTO WORKER",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = 1.sp
+                    )
+                    Text(
+                        text = "Background worker automatically records expenses on frequency schedule",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Button(
+                    onClick = { showAddDialog = true },
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.testTag("add_recurring_expense_btn")
+                ) {
+                    Text("+ Schedule", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            if (upcomingDue.isNotEmpty()) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.8f)),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = "⏰ RECURRING PAYMENTS DUE SOON (${upcomingDue.size})",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                        upcomingDue.forEach { re ->
+                            val df = java.text.SimpleDateFormat("MMM dd", java.util.Locale.US)
+                            val dueStr = df.format(java.util.Date(re.nextDueAt))
+                            Text(
+                                text = "• ${re.merchant.ifEmpty { "Recurring Expense" }}: ${config.currencySymbol}${re.amount} (${re.frequency}) due on $dueStr",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (recurringExpenses.isEmpty()) {
+                Text(
+                    text = "No recurring expenses scheduled. Tap '+ Schedule' to create subscriptions or fixed bills.",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    recurringExpenses.forEach { re ->
+                        val df = java.text.SimpleDateFormat("MMM dd, yyyy", java.util.Locale.US)
+                        val nextDueStr = df.format(java.util.Date(re.nextDueAt))
+
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = re.merchant.ifEmpty { "Subscription / Bill" },
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp
+                                    )
+                                    Text(
+                                        text = "Next Due: $nextDueStr • Frequency: ${re.frequency}",
+                                        fontSize = 10.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(
+                                        text = "${config.currencySymbol}${String.format(java.util.Locale.US, "%.2f", re.amount)}",
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontSize = 13.sp,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+
+                                    IconButton(
+                                        onClick = { viewModel.deleteRecurringExpense(re) },
+                                        modifier = Modifier.size(24.dp).testTag("delete_recurring_${re.id}")
+                                    ) {
+                                        Icon(
+                                            imageVector = androidx.compose.material.icons.Icons.Default.Delete,
+                                            contentDescription = "Delete",
+                                            tint = MaterialTheme.colorScheme.error,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showAddDialog) {
+        val frequencies = listOf("DAILY", "WEEKLY", "MONTHLY", "YEARLY")
+        AlertDialog(
+            onDismissRequest = { showAddDialog = false },
+            title = { Text("Schedule Recurring Expense") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = merchantName,
+                        onValueChange = { merchantName = it },
+                        label = { Text("Merchant / Description (e.g. Netflix, Rent)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().testTag("recurring_merchant_input")
+                    )
+
+                    OutlinedTextField(
+                        value = amountInput,
+                        onValueChange = { amountInput = it },
+                        label = { Text("Amount (${config.currencySymbol})") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().testTag("recurring_amount_input")
+                    )
+
+                    Text("Frequency:", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        frequencies.forEach { freq ->
+                            FilterChip(
+                                selected = selectedFrequency == freq,
+                                onClick = { selectedFrequency = freq },
+                                label = { Text(freq, fontSize = 10.sp) },
+                                modifier = Modifier.testTag("freq_chip_$freq")
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val amt = amountInput.toDoubleOrNull() ?: 0.0
+                        if (amt > 0) {
+                            viewModel.addRecurringExpense(
+                                amount = amt,
+                                currency = config.currency,
+                                taxCategoryId = selectedTaxCategoryId,
+                                merchant = merchantName,
+                                frequency = selectedFrequency
+                            )
+                            merchantName = ""
+                            amountInput = ""
+                            showAddDialog = false
+                        }
+                    },
+                    modifier = Modifier.testTag("save_recurring_btn")
+                ) {
+                    Text("Schedule")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }

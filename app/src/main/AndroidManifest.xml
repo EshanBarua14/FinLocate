@@ -6,6 +6,7 @@
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     <uses-permission android:name="android.permission.USE_FINGERPRINT" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
@@ -46,6 +47,17 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/quick_expense_widget_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.TaxCategoryWidgetProvider"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/tax_category_widget_info" />
         </receiver>
 
         <provider
