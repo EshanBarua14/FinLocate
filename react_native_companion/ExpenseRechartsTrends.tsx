@@ -13,47 +13,69 @@ import {
 } from 'recharts';
 import { ExpenseSchema } from './databaseSchema';
 import { calculateMonthlySpendingByCategory } from './dataAggregation';
+import { formatCurrencyAmount } from './currencyConverter';
 
 interface ExpenseRechartsTrendsProps {
-  expenses: ExpenseSchema[];
+  expenses: (ExpenseSchema & { category_name?: string })[];
   categories: { id: number; name: string }[];
-  limitAmount?: number; // Optional reference line/limit
+  limitAmount?: number; // Optional reference limit
+  displayCurrency?: string; // Display currency code
 }
 
 export default function ExpenseRechartsTrends({
   expenses,
   categories,
-  limitAmount = 1500
+  limitAmount = 1500,
+  displayCurrency = 'USD'
 }: ExpenseRechartsTrendsProps) {
 
-  // Get aggregated list: Array of { month: "2026-07", categoryName: "Utilities", totalAmount: 120.0 }
+  // Aggregate expenses normalized by month and category
   const aggregatedData = useMemo(() => {
-    return calculateMonthlySpendingByCategory(expenses, categories);
-  }, [expenses, categories]);
+    return calculateMonthlySpendingByCategory(expenses, categories, displayCurrency);
+  }, [expenses, categories, displayCurrency]);
 
-  // Pivot the data for Recharts, grouped by month, over the last 6 months
+  // Extract all unique category names
+  const uniqueCategories = useMemo(() => {
+    const catSet = new Set<string>();
+    categories.forEach(c => catSet.add(c.name));
+    expenses.forEach(e => {
+      if (e.category_name) catSet.add(e.category_name);
+    });
+    aggregatedData.forEach(item => catSet.add(item.categoryName));
+    return Array.from(catSet);
+  }, [categories, expenses, aggregatedData]);
+
+  // Pivot the data into Recharts friendly structures, grouped by month
   const chartData = useMemo(() => {
-    // 1. Find all unique months and categories
     const monthsSet = new Set<string>();
-    const categoriesSet = new Set<string>();
 
     aggregatedData.forEach(item => {
       monthsSet.add(item.month);
-      categoriesSet.add(item.categoryName);
     });
 
-    // Sort months chronologically
+    // If no months present, generate default recent month keys
+    if (monthsSet.size === 0) {
+      const now = new Date();
+      for (let i = 5; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const mKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        monthsSet.add(mKey);
+      }
+    }
+
     const sortedMonths = Array.from(monthsSet).sort();
-    
-    // Take the last 6 months for trend visualization
     const lastSixMonths = sortedMonths.slice(-6);
 
-    // 2. Build final pivot items
     return lastSixMonths.map(month => {
       const monthData: Record<string, any> = { month };
+
+      // Crucial: Initialize ALL category keys to 0 so Recharts stacked bars do not get undefined NaN values!
+      uniqueCategories.forEach(cat => {
+        monthData[cat] = 0;
+      });
+
       let totalForMonth = 0;
 
-      // Populate category totals
       aggregatedData
         .filter(item => item.month === month)
         .forEach(item => {
@@ -64,31 +86,24 @@ export default function ExpenseRechartsTrends({
       monthData.total = parseFloat(totalForMonth.toFixed(2));
       return monthData;
     });
-  }, [aggregatedData]);
+  }, [aggregatedData, uniqueCategories]);
 
-  // Extract unique categories for bars
-  const uniqueCategories = useMemo(() => {
-    const cats = new Set<string>();
-    aggregatedData.forEach(item => cats.add(item.categoryName));
-    return Array.from(cats);
-  }, [aggregatedData]);
-
-  // Color palette for category mapping
+  // Vibrant color palette for stacked categories
   const colorPalette = [
-    '#10B981', // Fintech Green
+    '#10B981', // Emerald Green
     '#3B82F6', // Royal Blue
-    '#F59E0B', // Warm Amber
+    '#F59E0B', // Amber Gold
     '#EF4444', // Coral Red
-    '#8B5CF6', // Vivid Purple
-    '#EC4899', // Hot Pink
-    '#06B6D4', // Cool Cyan
-    '#14B8A6'  // Deep Teal
+    '#8B5CF6', // Vivid Violet
+    '#EC4899', // Pink
+    '#06B6D4', // Cyan
+    '#14B8A6'  // Teal
   ];
 
   return (
     <div style={containerStyle}>
       <div style={headerStyle}>
-        <h3 style={titleStyle}>6-Month Spending Trends</h3>
+        <h3 style={titleStyle}>6-Month Spending Trends ({displayCurrency})</h3>
         <p style={subtitleStyle}>Monthly Categorized Spending Stack Overview (Recharts)</p>
       </div>
 
@@ -101,7 +116,7 @@ export default function ExpenseRechartsTrends({
           {/* Main Stacked Bar Chart for Category breakdown */}
           <div style={chartContainerStyle}>
             <h4 style={chartLabelStyle}>Categorized Breakdown</h4>
-            <div style={{ width: '100%', height: 300 }}>
+            <div style={{ width: '100%', height: 300, minHeight: 300 }}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart
                   data={chartData}
@@ -119,6 +134,7 @@ export default function ExpenseRechartsTrends({
                     fontSize={12}
                     tickLine={false}
                     axisLine={false}
+                    tickFormatter={(val) => `${val}`}
                   />
                   <Tooltip
                     contentStyle={{
@@ -128,6 +144,10 @@ export default function ExpenseRechartsTrends({
                       color: '#FFFFFF',
                       fontSize: 13
                     }}
+                    formatter={(value: any, name: any) => [
+                      formatCurrencyAmount(Number(value) || 0, displayCurrency),
+                      name
+                    ]}
                   />
                   <Legend iconType="circle" wrapperStyle={{ fontSize: 12, paddingTop: 10 }} />
                   {uniqueCategories.map((cat, index) => (
@@ -144,10 +164,10 @@ export default function ExpenseRechartsTrends({
             </div>
           </div>
 
-          {/* Area Chart for Aggregate Volume Trend with Reference Budget */}
+          {/* Area Chart for Aggregate Volume Trend with Reference Limit */}
           <div style={chartContainerStyle}>
-            <h4 style={chartLabelStyle}>Aggregate Spending Volume vs Budget Limit</h4>
-            <div style={{ width: '100%', height: 300 }}>
+            <h4 style={chartLabelStyle}>Aggregate Spending Volume vs Budget Limit ({formatCurrencyAmount(limitAmount, displayCurrency)})</h4>
+            <div style={{ width: '100%', height: 260, minHeight: 260 }}>
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart
                   data={chartData}
@@ -180,6 +200,10 @@ export default function ExpenseRechartsTrends({
                       color: '#FFFFFF',
                       fontSize: 13
                     }}
+                    formatter={(val: any) => [
+                      formatCurrencyAmount(Number(val) || 0, displayCurrency),
+                      'Total Monthly Spend'
+                    ]}
                   />
                   <Area
                     type="monotone"
@@ -199,7 +223,7 @@ export default function ExpenseRechartsTrends({
   );
 }
 
-// Styling Constants for clean, modern design system presentation
+// Styling Constants
 const containerStyle: React.CSSProperties = {
   fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
   backgroundColor: '#FFFFFF',

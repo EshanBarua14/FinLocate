@@ -1,4 +1,5 @@
 import { ExpenseSchema } from './databaseSchema';
+import { convertCurrency } from './currencyConverter';
 
 export interface MonthlyCategoryTotal {
   month: string; // format "YYYY-MM"
@@ -14,26 +15,39 @@ export interface ChartDatasetItem {
 
 /**
  * Aggregates a raw list of expenses into a structured list of monthly spending totals by category.
+ * Integrates currency conversion to ensure spending totals across different currencies are normalized.
  * 
  * @param expenses Array of saved expenses
  * @param categories Array of categories with names mapped
+ * @param displayCurrency Target currency code for aggregation (defaults to "USD")
  * @returns Array of grouped totals formatted for visualization libraries
  */
 export function calculateMonthlySpendingByCategory(
-  expenses: ExpenseSchema[],
-  categories: { id: number; name: string }[]
+  expenses: (ExpenseSchema & { category_name?: string })[],
+  categories: { id: number; name: string }[],
+  displayCurrency: string = 'USD'
 ): MonthlyCategoryTotal[] {
   const categoryMap = new Map<number, string>(categories.map(c => [c.id, c.name]));
   const groupedMap = new Map<string, Map<string, number>>();
 
   expenses.forEach(exp => {
-    // Determine the month key (YYYY-MM) from timestamp
+    // Determine the month key (YYYY-MM) from timestamp or date string
     const date = new Date(exp.date);
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const isValidDate = !isNaN(date.getTime());
+    const validDate = isValidDate ? date : new Date();
+    
+    const year = validDate.getFullYear();
+    const month = String(validDate.getMonth() + 1).padStart(2, '0');
     const monthKey = `${year}-${month}`;
 
-    const catName = categoryMap.get(exp.category_id) || 'Uncategorized';
+    const catName = categoryMap.get(exp.category_id) || exp.category_name || 'Uncategorized';
+
+    // Convert amount to target display currency using latest cached rates
+    const normalizedAmount = convertCurrency(
+      exp.amount,
+      exp.currency || 'USD',
+      displayCurrency
+    );
 
     if (!groupedMap.has(monthKey)) {
       groupedMap.set(monthKey, new Map<string, number>());
@@ -41,7 +55,7 @@ export function calculateMonthlySpendingByCategory(
 
     const monthMap = groupedMap.get(monthKey)!;
     const currentTotal = monthMap.get(catName) || 0;
-    monthMap.set(catName, currentTotal + exp.amount);
+    monthMap.set(catName, currentTotal + normalizedAmount);
   });
 
   const results: MonthlyCategoryTotal[] = [];
@@ -66,8 +80,7 @@ export function calculateMonthlySpendingByCategory(
 }
 
 /**
- * Transforms aggregated data into specific format required for "react-native-gifted-charts" Bar Charts.
- * Focuses on a single specified month (or defaults to the most recent month in the data).
+ * Transforms aggregated data into specific format required for Bar Charts.
  */
 export function getGiftedChartsBarData(
   aggregatedData: MonthlyCategoryTotal[],

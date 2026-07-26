@@ -37,6 +37,17 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Receipt
 import coil.compose.AsyncImage
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
+import kotlin.math.atan2
+import kotlin.math.sqrt
+import java.util.Locale
 
 data class ReceiptGalleryItem(
     val filePath: String,
@@ -83,6 +94,7 @@ fun TaxScreen(
 ) {
     val context = LocalContext.current
     val transactions by viewModel.filteredTransactions.collectAsState()
+    val allTransactions by viewModel.allTransactions.collectAsState()
     val categories by viewModel.categories.collectAsState()
     val config by viewModel.activeCountryConfig.collectAsState()
     val isEncrypted by viewModel.isExportEncryptionEnabled.collectAsState()
@@ -245,6 +257,15 @@ fun TaxScreen(
                     }
                 }
             }
+        }
+
+        // --- TAX CATEGORIZED EXPENSE DISTRIBUTION DONUT CHART ---
+        item {
+            TaxGroupDonutChartCard(
+                transactions = allTransactions,
+                categories = categories,
+                formatCurrency = { viewModel.formatCurrency(it) }
+            )
         }
 
         // --- SECURE CLOUD BACKUP & END-TO-END ENCRYPTION ---
@@ -1196,5 +1217,349 @@ fun calculateEstimatedTax(income: Double, deductions: Double, jurisdiction: Stri
             tax
         }
         else -> taxableIncome * 0.20
+    }
+}
+
+data class TaxCategoryGroupShare(
+    val groupName: String,
+    val totalAmount: Double,
+    val percentage: Float,
+    val color: Color,
+    val isDeductible: Boolean
+)
+
+@Composable
+fun TaxGroupDonutChartCard(
+    transactions: List<TransactionEntity>,
+    categories: List<CategoryEntity>,
+    formatCurrency: (Double) -> String,
+    modifier: Modifier = Modifier
+) {
+    // Process expense transactions by tax-categorized groups
+    val expenseTxs = remember(transactions) {
+        transactions.filter { it.type == "EXPENSE" }
+    }
+
+    val catMap = remember(categories) {
+        categories.associateBy { it.id }
+    }
+
+    val groupShares = remember(expenseTxs, catMap) {
+        val totalExpense = expenseTxs.sumOf { it.amount }
+        if (totalExpense <= 0.0) return@remember emptyList<TaxCategoryGroupShare>()
+
+        // Classify transactions into tax groups
+        var businessSum = 0.0
+        var medicalSum = 0.0
+        var charitySum = 0.0
+        var educationSum = 0.0
+        var otherDeductibleSum = 0.0
+        var nonDeductibleSum = 0.0
+
+        expenseTxs.forEach { tx ->
+            val catName = catMap[tx.categoryId]?.name ?: ""
+            if (tx.isTaxDeductible) {
+                val catLower = catName.lowercase(Locale.US)
+                when {
+                    catLower.contains("business") || catLower.contains("office") || catLower.contains("software") || catLower.contains("work") -> businessSum += tx.amount
+                    catLower.contains("medical") || catLower.contains("health") || catLower.contains("doctor") || catLower.contains("pharmacy") -> medicalSum += tx.amount
+                    catLower.contains("charity") || catLower.contains("donation") || catLower.contains("ngo") -> charitySum += tx.amount
+                    catLower.contains("education") || catLower.contains("tuition") || catLower.contains("book") -> educationSum += tx.amount
+                    else -> otherDeductibleSum += tx.amount
+                }
+            } else {
+                nonDeductibleSum += tx.amount
+            }
+        }
+
+        val list = mutableListOf<TaxCategoryGroupShare>()
+        val palette = listOf(
+            Color(0xFF10B981), // Emerald/Fintech Green - Business
+            Color(0xFF3B82F6), // Blue - Medical
+            Color(0xFFF59E0B), // Amber/Gold - Charity
+            Color(0xFF8B5CF6), // Purple - Education
+            Color(0xFF06B6D4), // Cyan - Other Deductibles
+            Color(0xFFEF4444)  // Rose/Red - Non-Deductible Personal
+        )
+
+        val groupsData = listOf(
+            Triple("Business & Work (Deductible)", businessSum, true),
+            Triple("Medical & Healthcare (Deductible)", medicalSum, true),
+            Triple("Donations & NGO (Deductible)", charitySum, true),
+            Triple("Education & R&D (Deductible)", educationSum, true),
+            Triple("Other Tax Deductibles", otherDeductibleSum, true),
+            Triple("Standard Non-Deductible", nonDeductibleSum, false)
+        )
+
+        var colorIdx = 0
+        groupsData.forEach { (name, sum, deductible) ->
+            if (sum > 0.0) {
+                val pct = ((sum / totalExpense) * 100).toFloat()
+                list.add(
+                    TaxCategoryGroupShare(
+                        groupName = name,
+                        totalAmount = sum,
+                        percentage = pct,
+                        color = palette[colorIdx % palette.size],
+                        isDeductible = deductible
+                    )
+                )
+            }
+            colorIdx++
+        }
+        list
+    }
+
+    val totalExpenseAmount = remember(expenseTxs) { expenseTxs.sumOf { it.amount } }
+    val totalDeductibleAmount = remember(groupShares) { groupShares.filter { it.isDeductible }.sumOf { it.totalAmount } }
+    val deductiblePercentage = remember(totalExpenseAmount, totalDeductibleAmount) {
+        if (totalExpenseAmount > 0) ((totalDeductibleAmount / totalExpenseAmount) * 100).toInt() else 0
+    }
+
+    var selectedGroupIndex by remember { mutableStateOf<Int?>(null) }
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(20.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)),
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("tax_group_donut_chart_card")
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = "TAX CATEGORIZATION DISTRIBUTION",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.2.sp
+                    )
+                    Text(
+                        text = "Expense Tax Breakdown",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    shape = RoundedCornerShape(20.dp)
+                ) {
+                    Text(
+                        text = "$deductiblePercentage% Deductible",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            if (groupShares.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(180.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "No expenses recorded to calculate tax group distribution",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                    )
+                }
+            } else {
+                // DONUT CANVAS & CENTER LEGEND
+                Box(
+                    modifier = Modifier
+                        .size(220.dp)
+                        .testTag("tax_donut_canvas_box"),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Canvas(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .pointerInput(groupShares) {
+                                detectTapGestures { offset ->
+                                    val center = Offset(size.width / 2f, size.height / 2f)
+                                    val dx = offset.x - center.x
+                                    val dy = offset.y - center.y
+                                    val radius = sqrt(dx * dx + dy * dy)
+                                    val innerRadius = size.width / 2f - 40.dp.toPx()
+                                    val outerRadius = size.width / 2f
+
+                                    if (radius in innerRadius..outerRadius) {
+                                        var angle = Math.toDegrees(atan2(dy.toDouble(), dx.toDouble())).toFloat()
+                                        if (angle < 0) angle += 360f
+
+                                        // Calculate slice matching angle
+                                        var currentAngle = -90f
+                                        groupShares.forEachIndexed { index, share ->
+                                            val sweep = (share.percentage / 100f) * 360f
+                                            val endAngle = currentAngle + sweep
+                                            val checkAngle = if (currentAngle < 0 && angle > 270) angle - 360f else angle
+                                            if (checkAngle >= currentAngle && checkAngle <= endAngle) {
+                                                selectedGroupIndex = if (selectedGroupIndex == index) null else index
+                                                return@detectTapGestures
+                                            }
+                                            currentAngle += sweep
+                                        }
+                                    } else {
+                                        selectedGroupIndex = null
+                                    }
+                                }
+                            }
+                    ) {
+                        val strokeWidth = 36.dp.toPx()
+                        val diameter = size.minDimension - strokeWidth
+                        val topLeft = Offset(strokeWidth / 2f, strokeWidth / 2f)
+                        val arcSize = Size(diameter, diameter)
+
+                        var startAngle = -90f
+                        val gapAngle = 2f
+
+                        groupShares.forEachIndexed { index, share ->
+                            val sweepAngle = ((share.percentage / 100f) * 360f) - gapAngle
+                            val isSelected = selectedGroupIndex == index
+                            val currentStroke = if (isSelected) strokeWidth + 8.dp.toPx() else strokeWidth
+
+                            drawArc(
+                                color = share.color,
+                                startAngle = startAngle,
+                                sweepAngle = sweepAngle.coerceAtLeast(1f),
+                                useCenter = false,
+                                topLeft = topLeft,
+                                size = arcSize,
+                                style = Stroke(width = currentStroke, cap = StrokeCap.Butt)
+                            )
+                            startAngle += ((share.percentage / 100f) * 360f)
+                        }
+                    }
+
+                    // CENTER READOUT
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(16.dp)
+                    ) {
+                        if (selectedGroupIndex != null && selectedGroupIndex!! < groupShares.size) {
+                            val sel = groupShares[selectedGroupIndex!!]
+                            Text(
+                                text = sel.groupName.split(" ").first(),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            )
+                            Text(
+                                text = formatCurrency(sel.totalAmount),
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Black,
+                                color = sel.color
+                            )
+                            Text(
+                                text = String.format(Locale.US, "%.1f%%", sel.percentage),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        } else {
+                            Text(
+                                text = "TOTAL EXPENSES",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                            )
+                            Text(
+                                text = formatCurrency(totalExpenseAmount),
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Black,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "$deductiblePercentage% Tax Deductible",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = FintechGreen
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // LEGEND GRID LIST
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    groupShares.forEachIndexed { index, share ->
+                        val isSelected = selectedGroupIndex == index
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    color = if (isSelected) share.color.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f),
+                                    shape = RoundedCornerShape(10.dp)
+                                )
+                                .clickable { selectedGroupIndex = if (isSelected) null else index }
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(12.dp)
+                                        .background(share.color, CircleShape)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text(
+                                        text = share.groupName,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = if (share.isDeductible) "Tax Deductible Category Group" else "Standard Non-Deductible",
+                                        fontSize = 9.sp,
+                                        color = if (share.isDeductible) FintechGreen else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                                    )
+                                }
+                            }
+
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(
+                                    text = formatCurrency(share.totalAmount),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = String.format(Locale.US, "%.1f%%", share.percentage),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = share.color
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }

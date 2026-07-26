@@ -20,6 +20,58 @@ data class TaxBracket(
     val rate: Double
 )
 
+data class TaxEvaluationResult(
+    val isTaxDeductible: Boolean,
+    val suggestedCategory: String,
+    val taxRate: Double,
+    val estimatedTaxAmount: Double,
+    val taxTip: String,
+    val regionName: String,
+    val currency: String
+)
+
+class LocalizedTaxService {
+
+    /**
+     * Evaluates an expense or transaction amount against localized tax rules for a user-defined region.
+     * Categorizes tax deductibility and suggests category alignment.
+     */
+    fun evaluateTransactionTax(
+        amount: Double,
+        descriptionOrNotes: String,
+        categoryName: String,
+        regionCode: String
+    ): TaxEvaluationResult {
+        val template = LocalizedTaxHelper.getTemplateForCountry(regionCode)
+        val lowerText = "$descriptionOrNotes $categoryName".lowercase(Locale.ROOT)
+
+        val isDeductible = template.deductibleCategories.any { cat ->
+            lowerText.contains(cat.lowercase(Locale.ROOT)) ||
+                    cat.lowercase(Locale.ROOT).split(" ").any { word -> word.length > 3 && lowerText.contains(word) }
+        } || lowerText.contains("tax") || lowerText.contains("health") || lowerText.contains("ira") ||
+                lowerText.contains("charity") || lowerText.contains("donation") || lowerText.contains("pension") ||
+                lowerText.contains("medical") || lowerText.contains("business")
+
+        val matchedCategory = template.deductibleCategories.firstOrNull { cat ->
+            lowerText.contains(cat.lowercase(Locale.ROOT))
+        } ?: if (isDeductible) template.deductibleCategories.firstOrNull() ?: "Tax Deductible" else categoryName
+
+        val taxRate = template.standardVatOrSalesTax
+        val estimatedTax = amount * (taxRate / 100.0)
+        val tip = template.localizedTaxTips.randomOrNull() ?: "Keep itemized receipts to substantiate tax filings."
+
+        return TaxEvaluationResult(
+            isTaxDeductible = isDeductible,
+            suggestedCategory = matchedCategory,
+            taxRate = taxRate,
+            estimatedTaxAmount = estimatedTax,
+            taxTip = tip,
+            regionName = template.countryName,
+            currency = template.currency
+        )
+    }
+}
+
 object LocalizedTaxHelper {
 
     fun getTemplateForCountry(countryCode: String): TaxRuleTemplate {

@@ -17,7 +17,7 @@ import { getTaxTemplate, LOCALIZED_TAX_TEMPLATES } from './taxRules';
 
 interface NewExpenseFormProps {
   onExpenseAdded?: (insertedId: number) => void;
-  selectedCountryCode?: string; // Optional default country code e.g. "US", "DE", "IN", "BD"
+  selectedCountryCode?: string; // e.g. "US", "DE", "IN", "BD"
 }
 
 export default function NewExpenseForm({
@@ -32,25 +32,33 @@ export default function NewExpenseForm({
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(40)).current;
 
+  // Today's date YYYY-MM-DD
+  const todayStr = new Date().toISOString().split('T')[0];
+
   // Form State
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
   const [currency, setCurrency] = useState('USD');
+  const [dateStr, setDateStr] = useState(todayStr); // YYYY-MM-DD
   const [taxRelevant, setTaxRelevant] = useState(false);
   const [taxRate, setTaxRate] = useState('0.0');
+  const [deductiblePercentage, setDeductiblePercentage] = useState('100.0');
   const [tags, setTags] = useState('');
   const [notes, setNotes] = useState('');
   const [selectedCountry, setSelectedCountry] = useState(selectedCountryCode);
+
+  const availableCurrencies = ['USD', 'EUR', 'GBP', 'INR', 'BDT', 'CAD', 'AUD', 'JPY'];
 
   // Load offline categories on component mount
   useEffect(() => {
     async function loadData() {
       try {
         const list = await getAllCategories();
-        setCategories(list);
-        if (list.length > 0) {
-          setSelectedCategoryId(list[0].id);
+        const expenseCats = list.filter((c) => c.is_income === 0);
+        setCategories(expenseCats);
+        if (expenseCats.length > 0) {
+          setSelectedCategoryId(expenseCats[0].id);
         }
       } catch (err) {
         console.error('Failed to load local categories:', err);
@@ -92,45 +100,70 @@ export default function NewExpenseForm({
     }
   }, [selectedCountry]);
 
-  // Form Submission
+  // Comprehensive input validation and form submission
   const handleSubmit = async () => {
+    // 1. Description Validation
     if (!description.trim()) {
-      Alert.alert('Validation Error', 'Please enter an expense description.');
+      Alert.alert('Validation Error', 'Please enter an expense description or merchant name.');
       return;
     }
 
+    // 2. Amount Validation
     const parsedAmount = parseFloat(amount);
     if (isNaN(parsedAmount) || parsedAmount <= 0) {
-      Alert.alert('Validation Error', 'Please enter a valid amount greater than 0.');
+      Alert.alert('Validation Error', 'Please enter a valid numeric amount greater than 0.');
       return;
     }
 
+    // 3. Category Validation
     if (selectedCategoryId === null) {
-      Alert.alert('Validation Error', 'Please select a spending category.');
+      Alert.alert('Validation Error', 'Please select an expense spending category.');
+      return;
+    }
+
+    // 4. Currency Validation
+    if (!currency.trim() || currency.trim().length !== 3) {
+      Alert.alert('Validation Error', 'Please enter or select a valid 3-letter currency code (e.g. USD).');
+      return;
+    }
+
+    // 5. Date Validation
+    const parsedDate = Date.parse(dateStr.trim());
+    if (isNaN(parsedDate)) {
+      Alert.alert('Validation Error', 'Please enter a valid expense date in YYYY-MM-DD format.');
+      return;
+    }
+
+    // 6. Tax-Deductible Percentage Validation
+    const parsedDeductiblePct = parseFloat(deductiblePercentage);
+    if (taxRelevant && (isNaN(parsedDeductiblePct) || parsedDeductiblePct < 0 || parsedDeductiblePct > 100)) {
+      Alert.alert('Validation Error', 'Tax deductible percentage must be a valid number between 0% and 100%.');
       return;
     }
 
     const newExpense: Omit<ExpenseSchema, 'id'> = {
       description: description.trim(),
       amount: parsedAmount,
-      date: Date.now(),
+      date: parsedDate,
       category_id: selectedCategoryId,
-      currency,
+      currency: currency.toUpperCase().trim(),
       tax_relevant: taxRelevant ? 1 : 0,
       tax_rate: taxRelevant ? parseFloat(taxRate) || 0.0 : 0.0,
+      tax_deductible_percentage: taxRelevant ? parsedDeductiblePct : 100.0,
       tags: tags.trim(),
       notes: notes.trim(),
     };
 
     try {
       const insertedId = await insertExpense(newExpense);
-      Alert.alert('Success', 'Expense recorded offline in SQLite database!');
+      Alert.alert('Success', 'Expense transaction recorded offline in SQLite database!');
       
       // Reset Form fields
       setDescription('');
       setAmount('');
       setNotes('');
       setTaxRelevant(false);
+      setDateStr(todayStr);
 
       if (onExpenseAdded) {
         onExpenseAdded(insertedId);
@@ -184,7 +217,7 @@ export default function NewExpenseForm({
         </View>
 
         {/* Description Field */}
-        <Text style={styles.label}>Description / Merchant</Text>
+        <Text style={styles.label}>Description / Merchant *</Text>
         <TextInput
           style={styles.input}
           placeholder="e.g. Uber Ride, Grocery, AWS Cloud"
@@ -193,10 +226,10 @@ export default function NewExpenseForm({
           onChangeText={setDescription}
         />
 
-        {/* Amount and Currency */}
+        {/* Amount, Currency, and Date */}
         <View style={styles.rowContainer}>
           <View style={[styles.colContainer, { flex: 2 }]}>
-            <Text style={styles.label}>Amount</Text>
+            <Text style={styles.label}>Amount *</Text>
             <TextInput
               style={styles.input}
               placeholder="0.00"
@@ -206,16 +239,46 @@ export default function NewExpenseForm({
               onChangeText={setAmount}
             />
           </View>
-          <View style={[styles.colContainer, { flex: 1, marginLeft: 12 }]}>
-            <Text style={styles.label}>Currency</Text>
-            <View style={[styles.input, styles.disabledInput]}>
-              <Text style={styles.disabledInputText}>{currency}</Text>
-            </View>
+          <View style={[styles.colContainer, { flex: 1.2, marginLeft: 10 }]}>
+            <Text style={styles.label}>Currency *</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="USD"
+              placeholderTextColor="#94A3B8"
+              value={currency}
+              onChangeText={(val) => setCurrency(val.toUpperCase())}
+              maxLength={3}
+            />
           </View>
         </View>
 
+        {/* Quick Currency Bar */}
+        <View style={styles.currencyRow}>
+          {availableCurrencies.map((cCode) => (
+            <TouchableOpacity
+              key={cCode}
+              style={[styles.miniChip, currency === cCode && styles.activeMiniChip]}
+              onPress={() => setCurrency(cCode)}
+            >
+              <Text style={[styles.miniChipText, currency === cCode && styles.activeMiniChipText]}>
+                {cCode}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* Date Picker Input */}
+        <Text style={styles.label}>Transaction Date (YYYY-MM-DD) *</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="2026-07-22"
+          placeholderTextColor="#94A3B8"
+          value={dateStr}
+          onChangeText={setDateStr}
+        />
+
         {/* Category Selection */}
-        <Text style={styles.label}>Spending Category</Text>
+        <Text style={styles.label}>Spending Category *</Text>
         <View style={styles.categoryGrid}>
           {categories.map((cat) => {
             const isSelected = selectedCategoryId === cat.id;
@@ -237,7 +300,7 @@ export default function NewExpenseForm({
         <View style={styles.switchRow}>
           <View style={styles.switchTextContainer}>
             <Text style={styles.switchLabel}>Tax-Relevant Deduction</Text>
-            <Text style={styles.switchDesc}>Deductible under localized rules</Text>
+            <Text style={styles.switchDesc}>Mark item as tax deductible</Text>
           </View>
           <Switch
             value={taxRelevant}
@@ -247,10 +310,10 @@ export default function NewExpenseForm({
           />
         </View>
 
-        {/* Conditional Tax Rate and Tax Tags */}
+        {/* Conditional Tax Fields */}
         {taxRelevant && (
           <View style={styles.taxFieldsContainer}>
-            <Text style={styles.label}>Applicable Tax Rate (%)</Text>
+            <Text style={styles.label}>Applicable Sales Tax / VAT Rate (%)</Text>
             <TextInput
               style={styles.input}
               placeholder="e.g. 19.0"
@@ -260,7 +323,17 @@ export default function NewExpenseForm({
               onChangeText={setTaxRate}
             />
 
-            <Text style={styles.label}>Tax Deductible Rule Tags</Text>
+            <Text style={styles.label}>Tax Deductible Percentage Threshold (%)</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="100.0"
+              placeholderTextColor="#94A3B8"
+              keyboardType="decimal-pad"
+              value={deductiblePercentage}
+              onChangeText={setDeductiblePercentage}
+            />
+
+            <Text style={styles.label}>Tax Rule Tags</Text>
             <TextInput
               style={styles.input}
               placeholder="e.g. traditional_ira, medical_premium"
@@ -269,7 +342,7 @@ export default function NewExpenseForm({
               onChangeText={setTags}
             />
             <Text style={styles.helperText}>
-              Matched standard rules: {getTaxTemplate(selectedCountry).deductibleCategories.join(', ')}
+              Standard rules: {getTaxTemplate(selectedCountry).deductibleCategories.join(', ')}
             </Text>
           </View>
         )}
@@ -278,7 +351,7 @@ export default function NewExpenseForm({
         <Text style={styles.label}>Audit Notes (Optional)</Text>
         <TextInput
           style={[styles.input, styles.textArea]}
-          placeholder="Enter receipts references or transaction details..."
+          placeholder="Receipt references, project codes, or memo..."
           placeholderTextColor="#94A3B8"
           multiline
           numberOfLines={3}
@@ -292,8 +365,6 @@ export default function NewExpenseForm({
         </TouchableOpacity>
       </Animated.View>
     </ScrollView>
-  );
-}
   );
 }
 
@@ -360,21 +431,35 @@ const styles = StyleSheet.create({
     height: 70,
     textAlignVertical: 'top',
   },
-  disabledInput: {
-    backgroundColor: '#F1F5F9',
-    borderColor: '#E2E8F0',
-    justifyContent: 'center',
-  },
-  disabledInputText: {
-    color: '#64748B',
-    fontSize: 15,
-    fontWeight: '600',
-  },
   rowContainer: {
     flexDirection: 'row',
   },
   colContainer: {
     flexDirection: 'column',
+  },
+  currencyRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 6,
+  },
+  miniChip: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    backgroundColor: '#F1F5F9',
+    marginRight: 6,
+    marginBottom: 6,
+  },
+  activeMiniChip: {
+    backgroundColor: '#3B82F6',
+  },
+  miniChipText: {
+    fontSize: 11,
+    color: '#475569',
+    fontWeight: '600',
+  },
+  activeMiniChipText: {
+    color: '#FFFFFF',
   },
   row: {
     flexDirection: 'row',

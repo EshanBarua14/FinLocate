@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">Finance Tracker</string>
+    <string name="shortcut_short_label">Quick Log Expense</string>
+    <string name="shortcut_long_label">Rapid Log Expense or Receipt</string>
 </resources>

@@ -1118,6 +1118,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (!notifiedAlertKeys.contains(key)) {
                 notifiedAlertKeys.add(key)
                 postNotification(alert.message)
+                com.example.data.service.BudgetNotificationService.triggerLocalSystemNotification(getApplication(), alert)
                 _uiEvents.tryEmit(UiEvent.BudgetAlertTriggered)
             }
         }
@@ -2923,6 +2924,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
     
+    fun applySuggestedBudgetInsight(insight: PredictiveInsight) {
+        viewModelScope.launch {
+            updateBudgetLimit(
+                categoryId = insight.categoryId,
+                newLimit = insight.suggestedLimit,
+                isAdaptive = true
+            )
+            postNotification("Updated budget limit for '${insight.categoryName}' to ${formatCurrency(insight.suggestedLimit)} based on AI prediction.")
+        }
+    }
+
     private fun parseCsvLine(line: String): List<String> {
         val result = mutableListOf<String>()
         var curVal = java.lang.StringBuilder()

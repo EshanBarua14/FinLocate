@@ -1,5 +1,10 @@
 package com.example.data.service
 
+import android.content.Context
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.os.Build
+import androidx.core.app.NotificationCompat
 import com.example.data.model.BudgetEntity
 import com.example.data.model.CategoryEntity
 
@@ -61,4 +66,54 @@ object BudgetNotificationService {
 
         return alerts
     }
+
+    /**
+     * Checks budgets and posts local Android system notifications when spending thresholds (80% or 100%) are reached.
+     */
+    fun checkBudgetsAndNotify(
+        context: Context,
+        budgets: List<BudgetEntity>,
+        categories: List<CategoryEntity>
+    ): List<BudgetAlert> {
+        val alerts = checkBudgets(budgets, categories)
+        alerts.forEach { alert ->
+            triggerLocalSystemNotification(context, alert)
+        }
+        return alerts
+    }
+
+    /**
+     * Triggers a local Android system notification for a specific budget threshold alert.
+     */
+    fun triggerLocalSystemNotification(context: Context, alert: BudgetAlert) {
+        try {
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+                ?: return
+
+            val channelId = "wealthflow_budget_alerts"
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val channel = NotificationChannel(
+                    channelId,
+                    "Monthly Budget Threshold Notifications",
+                    NotificationManager.IMPORTANCE_HIGH
+                ).apply {
+                    description = "System notifications triggered when category spending reaches defined monthly budget limits"
+                }
+                notificationManager.createNotificationChannel(channel)
+            }
+
+            val builder = NotificationCompat.Builder(context, channelId)
+                .setSmallIcon(android.R.drawable.stat_notify_error)
+                .setContentTitle(if (alert.isExceeded) "🚨 Budget Limit Exceeded: ${alert.categoryName}" else "⚠️ Budget Warning: ${alert.categoryName}")
+                .setContentText(alert.message)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(alert.message))
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setAutoCancel(true)
+
+            notificationManager.notify(alert.categoryId.toInt(), builder.build())
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
 }
+

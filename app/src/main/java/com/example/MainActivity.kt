@@ -282,12 +282,17 @@ class MainActivity : FragmentActivity() {
                     }
                 } else {
                     var activeTabIndex by remember { mutableStateOf(0) }
+                    var showRapidEntrySheet by remember { mutableStateOf(false) }
+                    var showDataManagementSheet by remember { mutableStateOf(false) }
                     val countryConfig by viewModel.activeCountryConfig.collectAsState()
                     val context = androidx.compose.ui.platform.LocalContext.current
                     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
 
                     LaunchedEffect(Unit) {
                         viewModel.checkRateUpdatePrompt()
+                        if (intent?.action == "com.example.ACTION_QUICK_ADD_EXPENSE") {
+                            showRapidEntrySheet = true
+                        }
                         
                         launch {
                             viewModel.notifications.collect { msg ->
@@ -378,7 +383,16 @@ class MainActivity : FragmentActivity() {
                                         )
                                     }
                                 },
-                                actions = {
+                                 actions = {
+                                    IconButton(
+                                        onClick = { showDataManagementSheet = true },
+                                        modifier = Modifier.testTag("action_data_management")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Storage,
+                                            contentDescription = "Data Management Settings"
+                                        )
+                                    }
                                     IconButton(
                                         onClick = { viewModel.exportReportToCsv(this@MainActivity) },
                                         modifier = Modifier.testTag("action_export_csv")
@@ -439,6 +453,31 @@ class MainActivity : FragmentActivity() {
                                         viewModel = viewModel
                                     )
                                     5 -> AiInsightsScreen(
+                                        viewModel = viewModel
+                                    )
+                                }
+                            }
+
+                            if (showRapidEntrySheet) {
+                                @OptIn(ExperimentalMaterial3Api::class)
+                                ModalBottomSheet(
+                                    onDismissRequest = { showRapidEntrySheet = false },
+                                    modifier = Modifier.testTag("rapid_entry_modal_sheet")
+                                ) {
+                                    RapidEntryScreen(
+                                        viewModel = viewModel,
+                                        onDismiss = { showRapidEntrySheet = false }
+                                    )
+                                }
+                            }
+
+                            if (showDataManagementSheet) {
+                                @OptIn(ExperimentalMaterial3Api::class)
+                                ModalBottomSheet(
+                                    onDismissRequest = { showDataManagementSheet = false },
+                                    modifier = Modifier.testTag("data_management_modal_sheet")
+                                ) {
+                                    DataManagementScreen(
                                         viewModel = viewModel
                                     )
                                 }

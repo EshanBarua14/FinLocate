@@ -7,6 +7,7 @@ const express = require('express');
 const cors = require('cors');
 const { Sequelize, DataTypes, Op } = require('sequelize');
 const path = require('path');
+const fs = require('fs');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 require('dotenv').config();
@@ -36,9 +37,17 @@ if (process.env.DATABASE_URL) {
   });
 } else {
   console.log('No DATABASE_URL environment variable found. Falling back to local SQLite...');
+  const sqlitePath = process.env.SQLITE_STORAGE_PATH || path.join(__dirname, 'data', 'wealthflow_cloud.sqlite');
+  const sqliteDir = path.dirname(sqlitePath);
+  
+  // Ensure the target directory exists before SQLite creates/opens the database file
+  if (!fs.existsSync(sqliteDir)) {
+    fs.mkdirSync(sqliteDir, { recursive: true });
+  }
+
   sequelize = new Sequelize({
     dialect: 'sqlite',
-    storage: path.join(__dirname, 'wealthflow_cloud.sqlite'),
+    storage: sqlitePath,
     logging: false
   });
 }
@@ -241,13 +250,21 @@ const Notification = sequelize.define('Notification', {
   timestamps: false
 });
 
-// Sync Database Tables
-sequelize.sync({ alter: true })
+// Sync Database Tables with dialect-safe options
+const isSqlite = sequelize.getDialect() === 'sqlite';
+sequelize.sync(isSqlite ? {} : { alter: true })
   .then(() => {
-    console.log('Database tables successfully synchronized & ready.');
+    console.log(`Database tables successfully synchronized & ready (${sequelize.getDialect()}).`);
   })
   .catch((err) => {
-    console.error('Failed to sync tables:', err);
+    console.error('Initial sync failed, retrying with default schema sync:', err.message);
+    sequelize.sync()
+      .then(() => {
+        console.log('Database tables successfully synchronized on retry fallback.');
+      })
+      .catch((retryErr) => {
+        console.error('Fatal database sync failure:', retryErr);
+      });
   });
 
 // --- JWT AUTHENTICATION MIDDLEWARE ---

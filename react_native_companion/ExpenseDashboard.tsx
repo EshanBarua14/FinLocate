@@ -11,22 +11,26 @@ import {
   Animated,
   Share,
 } from 'react-native';
-import { ExpenseSchema, CategorySchema } from './databaseSchema';
-import { getAllExpenses, getAllCategories, deleteExpense } from './localDatabase';
-import { calculateMonthlySpendingByCategory, MonthlyCategoryTotal } from './dataAggregation';
+import { ExpenseSchema, IncomeSchema, CategorySchema } from './databaseSchema';
+import { getAllExpenses, getAllIncome, getAllCategories, deleteExpense } from './localDatabase';
+import { convertCurrency, formatCurrencyAmount } from './currencyConverter';
 import { exportExpensesToCsv } from './csvExporter';
+import ExpenseRechartsTrends from './ExpenseRechartsTrends';
 
 interface ExpenseDashboardProps {
   onAddPress?: () => void;
   monthlyBudgetLimit?: number; // Predefined budget limit, defaults to $1500
+  baseCurrency?: string; // Default base currency for total balance summary e.g. "USD"
 }
 
 export default function ExpenseDashboard({
   onAddPress,
   monthlyBudgetLimit = 1500,
+  baseCurrency = 'USD',
 }: ExpenseDashboardProps) {
   // DB States
   const [expenses, setExpenses] = useState<(ExpenseSchema & { category_name?: string })[]>([]);
+  const [incomeList, setIncomeList] = useState<(IncomeSchema & { category_name?: string })[]>([]);
   const [categories, setCategories] = useState<CategorySchema[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -34,6 +38,7 @@ export default function ExpenseDashboard({
   const [searchQuery, setSearchQuery] = useState('');
   const [startDateStr, setStartDateStr] = useState(''); // Format: YYYY-MM-DD
   const [endDateStr, setEndDateStr] = useState(''); // Format: YYYY-MM-DD
+  const [selectedDisplayCurrency, setSelectedDisplayCurrency] = useState(baseCurrency);
 
   // Animated entrance states
   const listFadeAnim = useRef(new Animated.Value(0)).current;
@@ -42,12 +47,14 @@ export default function ExpenseDashboard({
   const loadData = async () => {
     try {
       setLoading(true);
-      const [expenseList, catList] = await Promise.all([
+      const [expenseData, incomeData, catData] = await Promise.all([
         getAllExpenses(),
+        getAllIncome(),
         getAllCategories(),
       ]);
-      setExpenses(expenseList);
-      setCategories(catList);
+      setExpenses(expenseData);
+      setIncomeList(incomeData);
+      setCategories(catData);
 
       // Trigger animated entrance
       Animated.timing(listFadeAnim, {
@@ -67,19 +74,48 @@ export default function ExpenseDashboard({
     loadData();
   }, []);
 
+  // Multi-Currency Total Balance, Total Income, and Total Expenses Calculations
+  const summaryMetrics = React.useMemo(() => {
+    let totalIncomeConverted = 0;
+    let totalExpensesConverted = 0;
+
+    // Convert each income item to selected display currency
+    incomeList.forEach((inc) => {
+      const converted = convertCurrency(inc.amount, inc.currency || 'USD', selectedDisplayCurrency);
+      totalIncomeConverted += converted;
+    });
+
+    // Convert each expense item to selected display currency
+    expenses.forEach((exp) => {
+      const converted = convertCurrency(exp.amount, exp.currency || 'USD', selectedDisplayCurrency);
+      totalExpensesConverted += converted;
+    });
+
+    const netBalanceConverted = totalIncomeConverted - totalExpensesConverted;
+
+    return {
+      totalIncome: parseFloat(totalIncomeConverted.toFixed(2)),
+      totalExpenses: parseFloat(totalExpensesConverted.toFixed(2)),
+      netBalance: parseFloat(netBalanceConverted.toFixed(2)),
+    };
+  }, [incomeList, expenses, selectedDisplayCurrency]);
+
   // Budget status evaluation: Exceeds 90% threshold watchdog
   const budgetAlertInfo = React.useMemo(() => {
     const now = new Date();
     const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     
-    // Sum all expense amounts for the current month
+    // Sum all expense amounts for the current month in base currency
     const currentMonthExpenses = expenses.filter((exp) => {
       const expDate = new Date(exp.date);
       const expMonthKey = `${expDate.getFullYear()}-${String(expDate.getMonth() + 1).padStart(2, '0')}`;
       return expMonthKey === currentMonthKey;
     });
 
-    const totalSpend = currentMonthExpenses.reduce((sum, item) => sum + item.amount, 0);
+    const totalSpend = currentMonthExpenses.reduce((sum, item) => {
+      return sum + convertCurrency(item.amount, item.currency || 'USD', selectedDisplayCurrency);
+    }, 0);
+
     const percentageOfBudget = monthlyBudgetLimit > 0 ? (totalSpend / monthlyBudgetLimit) * 100 : 0;
     const isExceeded90 = percentageOfBudget >= 90;
 
@@ -89,15 +125,15 @@ export default function ExpenseDashboard({
       percentage: parseFloat(percentageOfBudget.toFixed(1)),
       isExceeded90,
     };
-  }, [expenses, monthlyBudgetLimit]);
+  }, [expenses, monthlyBudgetLimit, selectedDisplayCurrency]);
 
   // Expose an interactive system dialog alert when limit threshold breached
   useEffect(() => {
     if (budgetAlertInfo.isExceeded90 && expenses.length > 0) {
       Alert.alert(
-        '⚠️ Budget Alert threshold Exceeded!',
-        `Your spending for the current month (${budgetAlertInfo.currentMonthKey}) has reached ${budgetAlertInfo.percentage}% of your limit.\nTotal spent: $${budgetAlertInfo.totalSpend} of $${monthlyBudgetLimit}.`,
-        [{ text: 'Acknowledge Budget Limit', style: 'warning' }]
+        '⚠️ Budget Threshold Exceeded!',
+        `Your spending for the current month (${budgetAlertInfo.currentMonthKey}) has reached ${budgetAlertInfo.percentage}% of your limit.\nTotal spent: ${formatCurrencyAmount(budgetAlertInfo.totalSpend, selectedDisplayCurrency)} of ${formatCurrencyAmount(monthlyBudgetLimit, selectedDisplayCurrency)}.`,
+        [{ text: 'Acknowledge Limit', style: 'default' }]
       );
     }
   }, [budgetAlertInfo.isExceeded90, budgetAlertInfo.currentMonthKey]);
@@ -111,7 +147,7 @@ export default function ExpenseDashboard({
     try {
       const csvData = exportExpensesToCsv(expenses);
       await Share.share({
-        title: 'Local Financial Logs Backup',
+        title: 'Local Financial Ledger Backup',
         message: csvData,
       });
     } catch (err) {
@@ -124,7 +160,7 @@ export default function ExpenseDashboard({
   const handleDeleteItem = (id: number) => {
     Alert.alert(
       'Confirm Deletion',
-      'Are you sure you want to delete this expense record?',
+      'Are you sure you want to delete this expense record from SQLite storage?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -176,25 +212,6 @@ export default function ExpenseDashboard({
     });
   }, [expenses, searchQuery, startDateStr, endDateStr]);
 
-  // 6-Month spending aggregation for trends visualizer
-  const trendDataset = React.useMemo(() => {
-    const categoriesMapped = categories.map((c) => ({ id: c.id, name: c.name }));
-    const aggregates = calculateMonthlySpendingByCategory(expenses, categoriesMapped);
-
-    // Group items by unique month key
-    const monthGroups: Record<string, number> = {};
-    aggregates.forEach((item) => {
-      monthGroups[item.month] = (monthGroups[item.month] || 0) + item.totalAmount;
-    });
-
-    // Take the last six months
-    const sortedMonths = Object.keys(monthGroups).sort().slice(-6);
-    return sortedMonths.map((month) => ({
-      month,
-      amount: monthGroups[month],
-    }));
-  }, [expenses, categories]);
-
   if (loading) {
     return (
       <View style={styles.centerContainer}>
@@ -210,7 +227,7 @@ export default function ExpenseDashboard({
       <View style={styles.header}>
         <View>
           <Text style={styles.headerTitle}>Offline Ledger Dashboard</Text>
-          <Text style={styles.headerDesc}>Compliant Tax & Category Tracking</Text>
+          <Text style={styles.headerDesc}>Multi-Currency Balance & Tax Tracking</Text>
         </View>
         <TouchableOpacity style={styles.exportButton} onPress={handleCsvExport}>
           <Text style={styles.exportButtonText}>Export CSV</Text>
@@ -222,39 +239,61 @@ export default function ExpenseDashboard({
         <View style={styles.warningBanner}>
           <Text style={styles.warningTitle}>⚠️ High Spending Warning</Text>
           <Text style={styles.warningMessage}>
-            Current Month Spend is at ${budgetAlertInfo.totalSpend} ({budgetAlertInfo.percentage}% of ${monthlyBudgetLimit} limit)
+            Current Month Spend is at {formatCurrencyAmount(budgetAlertInfo.totalSpend, selectedDisplayCurrency)} ({budgetAlertInfo.percentage}% of {formatCurrencyAmount(monthlyBudgetLimit, selectedDisplayCurrency)} limit)
           </Text>
         </View>
       )}
 
-      {/* 6-Month Visualizer Bar Chart (Built using core native elements) */}
-      <View style={styles.chartCard}>
-        <Text style={styles.chartTitle}>Last 6-Month Spending Trends</Text>
-        <Text style={styles.chartDesc}>Aggregated offline volume (Base: {trendDataset.length} Active Months)</Text>
-        {trendDataset.length === 0 ? (
-          <View style={styles.emptyChart}>
-            <Text style={styles.emptyChartText}>No records to generate trend visualizers</Text>
-          </View>
-        ) : (
-          <View style={styles.chartRow}>
-            {trendDataset.map((item, index) => {
-              // Calculate relative height bar percentage
-              const maxAmount = Math.max(...trendDataset.map((t) => t.amount), 1);
-              const barHeightPct = (item.amount / maxAmount) * 80 + 10; // minimum height 10%
+      {/* Summary Cards: Total Balance, Total Income, Total Expenses */}
+      <View style={styles.summaryRow}>
+        <View style={[styles.summaryCard, styles.balanceCard]}>
+          <Text style={styles.summaryLabel}>Total Net Balance</Text>
+          <Text style={[styles.summaryValue, summaryMetrics.netBalance < 0 && styles.negativeValue]}>
+            {formatCurrencyAmount(summaryMetrics.netBalance, selectedDisplayCurrency)}
+          </Text>
+          <Text style={styles.summarySubText}>All offline accounts combined</Text>
+        </View>
 
-              return (
-                <View key={item.month} style={styles.chartCol}>
-                  <View style={styles.barWrapper}>
-                    <View style={[styles.bar, { height: `${barHeightPct}%` }]} />
-                  </View>
-                  <Text style={styles.barLabel}>{item.month.split('-')[1]}/{item.month.split('-')[0].slice(2)}</Text>
-                  <Text style={styles.barValue}>${Math.round(item.amount)}</Text>
-                </View>
-              );
-            })}
-          </View>
-        )}
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryLabel}>Total Income</Text>
+          <Text style={[styles.summaryValue, styles.incomeValue]}>
+            {formatCurrencyAmount(summaryMetrics.totalIncome, selectedDisplayCurrency)}
+          </Text>
+          <Text style={styles.summarySubText}>Converted ({selectedDisplayCurrency})</Text>
+        </View>
+
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryLabel}>Total Expenses</Text>
+          <Text style={[styles.summaryValue, styles.expenseValue]}>
+            {formatCurrencyAmount(summaryMetrics.totalExpenses, selectedDisplayCurrency)}
+          </Text>
+          <Text style={styles.summarySubText}>Converted ({selectedDisplayCurrency})</Text>
+        </View>
       </View>
+
+      {/* Display Currency Switcher Bar */}
+      <View style={styles.currencySwitchRow}>
+        <Text style={styles.currencySwitchLabel}>Display Currency Snapshot:</Text>
+        {['USD', 'EUR', 'GBP', 'INR', 'BDT', 'CAD', 'AUD'].map((c) => (
+          <TouchableOpacity
+            key={c}
+            style={[styles.currencyTag, selectedDisplayCurrency === c && styles.activeCurrencyTag]}
+            onPress={() => setSelectedDisplayCurrency(c)}
+          >
+            <Text style={[styles.currencyTagText, selectedDisplayCurrency === c && styles.activeCurrencyTagText]}>
+              {c}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {/* Recharts 6-Month Spending Trends Component */}
+      <ExpenseRechartsTrends
+        expenses={expenses}
+        categories={categories.map((c) => ({ id: c.id, name: c.name }))}
+        limitAmount={monthlyBudgetLimit}
+        displayCurrency={selectedDisplayCurrency}
+      />
 
       {/* Filter and Date Range Control Panel */}
       <View style={styles.filterCard}>
@@ -313,19 +352,21 @@ export default function ExpenseDashboard({
                     <Text style={styles.categoryBadgeText}>{item.category_name || 'Uncategorized'}</Text>
                   </View>
                   <Text style={styles.itemDate}>
-                    {new Date(item.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                    {new Date(item.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
                   </Text>
                 </View>
                 {item.tax_relevant === 1 && (
                   <View style={styles.taxBadge}>
-                    <Text style={styles.taxBadgeText}>Deductible Tax ({item.tax_rate}%)</Text>
+                    <Text style={styles.taxBadgeText}>
+                      Deductible ({item.tax_deductible_percentage ?? 100}% @ {item.tax_rate}% VAT)
+                    </Text>
                   </View>
                 )}
                 {item.tags ? <Text style={styles.tagText}>Tags: {item.tags}</Text> : null}
               </View>
               <View style={styles.itemRight}>
                 <Text style={styles.itemAmount}>
-                  -{item.currency} {item.amount.toFixed(2)}
+                  -{formatCurrencyAmount(item.amount, item.currency || 'USD')}
                 </Text>
                 <TouchableOpacity onPress={() => handleDeleteItem(item.id)}>
                   <Text style={styles.deleteText}>Delete</Text>
@@ -406,77 +447,76 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: '#B91C1C',
   },
-  chartCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    elevation: 2,
-    marginBottom: 16,
-  },
-  chartTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#1E293B',
-  },
-  chartDesc: {
-    fontSize: 11,
-    color: '#64748B',
-    marginTop: 2,
-    marginBottom: 16,
-  },
-  emptyChart: {
-    height: 100,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#FAFCFF',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderStyle: 'dashed',
-  },
-  emptyChartText: {
-    color: '#94A3B8',
-    fontSize: 12,
-  },
-  chartRow: {
+  summaryRow: {
     flexDirection: 'row',
-    height: 120,
-    alignItems: 'flex-end',
-    justifyContent: 'space-around',
-    paddingBottom: 4,
+    justifyContent: 'space-between',
+    marginBottom: 12,
   },
-  chartCol: {
-    alignItems: 'center',
+  summaryCard: {
     flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 12,
+    marginHorizontal: 4,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
-  barWrapper: {
-    height: 70,
-    width: '100%',
-    justifyContent: 'flex-end',
-    alignItems: 'center',
+  balanceCard: {
+    backgroundColor: '#0F172A',
+    borderColor: '#1E293B',
   },
-  bar: {
-    width: 14,
-    backgroundColor: '#10B981',
-    borderRadius: 4,
-  },
-  barLabel: {
-    fontSize: 9,
+  summaryLabel: {
+    fontSize: 11,
     fontWeight: '600',
     color: '#64748B',
-    marginTop: 6,
   },
-  barValue: {
+  summaryValue: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    marginVertical: 4,
+  },
+  incomeValue: {
+    color: '#10B981',
+  },
+  expenseValue: {
+    color: '#EF4444',
+  },
+  negativeValue: {
+    color: '#F87171',
+  },
+  summarySubText: {
+    fontSize: 9,
+    color: '#94A3B8',
+  },
+  currencySwitchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  currencySwitchLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#64748B',
+    marginRight: 6,
+  },
+  currencyTag: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    backgroundColor: '#E2E8F0',
+    marginRight: 4,
+  },
+  activeCurrencyTag: {
+    backgroundColor: '#10B981',
+  },
+  currencyTagText: {
     fontSize: 10,
     fontWeight: '700',
-    color: '#0F172A',
-    marginTop: 2,
+    color: '#334155',
+  },
+  activeCurrencyTagText: {
+    color: '#FFFFFF',
   },
   filterCard: {
     backgroundColor: '#FFFFFF',
@@ -490,6 +530,7 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
     marginBottom: 16,
+    marginTop: 16,
   },
   filterTitle: {
     fontSize: 14,
