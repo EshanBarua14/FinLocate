@@ -20,6 +20,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import java.util.Calendar
 import java.util.Date
+import java.text.SimpleDateFormat
+import java.util.Locale
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -4987,7 +4989,7 @@ fun FinancialAchievementsCard(
     modifier: Modifier = Modifier
 ) {
     val allExpenses by viewModel.allExpenses.collectAsState()
-    val allBudgets by viewModel.allCategoryBudgets.collectAsState()
+    val allBudgets by viewModel.activeBudgets.collectAsState()
     val taxCategories by viewModel.allTaxCategories.collectAsState()
 
     val (isBudgetMasterUnlocked, budgetConsecutiveMonths) = remember(allExpenses, allBudgets) {
@@ -5002,7 +5004,7 @@ fun FinancialAchievementsCard(
                 c.get(Calendar.YEAR) == y && c.get(Calendar.MONTH) == m
             }
             val monthSpent = monthExps.sumOf { it.amount }
-            val monthCap = allBudgets.sumOf { it.monthlyLimit }
+            val monthCap = allBudgets.sumOf { it.amount }
 
             if (monthCap > 0 && monthSpent <= monthCap) {
                 consecutiveCount++
