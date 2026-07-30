@@ -71,9 +71,10 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge() // mandatory modern full-bleed edge-to-edge support
 
-        // Schedule background worker for recurring expenses
+        // Schedule background workers for recurring expenses and budget checks
         try {
             com.example.data.worker.RecurringExpenseWorker.scheduleWorker(this)
+            com.example.data.worker.BudgetCheckWorker.scheduleWorker(this)
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -348,12 +349,32 @@ class MainActivity : FragmentActivity() {
                         modifier = Modifier
                             .fillMaxSize()
                             .background(MaterialTheme.colorScheme.background),
+                        floatingActionButton = {
+                            FloatingActionButton(
+                                onClick = {
+                                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                    showRapidEntrySheet = true
+                                },
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary,
+                                shape = RoundedCornerShape(18.dp),
+                                elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp, pressedElevation = 12.dp),
+                                modifier = Modifier.testTag("floating_rapid_entry_fab")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Add,
+                                    contentDescription = "Rapid Expense Entry",
+                                    modifier = Modifier.size(26.dp)
+                                )
+                            }
+                        },
                         bottomBar = {
                             NavigationBar(
                                 modifier = Modifier
                                     .testTag("app_bottom_nav_bar")
                                     .windowInsetsPadding(WindowInsets.navigationBars), // prevent cutoffs on gesture/3-button views
-                                tonalElevation = 8.dp
+                                containerColor = MaterialTheme.colorScheme.surface,
+                                tonalElevation = 12.dp
                             ) {
                                 val tabs = listOf(
                                     NavigationTabItem("Dashboard", Icons.Default.Dashboard, "tab_dashboard"),
@@ -367,14 +388,32 @@ class MainActivity : FragmentActivity() {
                                 tabs.forEachIndexed { idx, tab ->
                                     NavigationBarItem(
                                         selected = activeTabIndex == idx,
-                                        onClick = { activeTabIndex = idx },
-                                        icon = { Icon(imageVector = tab.icon, contentDescription = tab.label) },
-                                        label = { Text(tab.label, fontSize = 9.sp, fontWeight = FontWeight.Bold, maxLines = 1) },
+                                        onClick = {
+                                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                            activeTabIndex = idx
+                                        },
+                                        icon = {
+                                            Icon(
+                                                imageVector = tab.icon,
+                                                contentDescription = tab.label,
+                                                modifier = Modifier.size(if (activeTabIndex == idx) 22.dp else 20.dp)
+                                            )
+                                        },
+                                        label = {
+                                            Text(
+                                                text = tab.label,
+                                                fontSize = 9.sp,
+                                                fontWeight = if (activeTabIndex == idx) FontWeight.ExtraBold else FontWeight.Medium,
+                                                maxLines = 1
+                                            )
+                                        },
                                         modifier = Modifier.testTag(tab.testTagId),
                                         colors = NavigationBarItemDefaults.colors(
-                                            selectedIconColor = MaterialTheme.colorScheme.background,
+                                            selectedIconColor = MaterialTheme.colorScheme.onPrimary,
                                             selectedTextColor = MaterialTheme.colorScheme.primary,
-                                            indicatorColor = MaterialTheme.colorScheme.primary
+                                            indicatorColor = MaterialTheme.colorScheme.primary,
+                                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     )
                                 }
@@ -385,19 +424,37 @@ class MainActivity : FragmentActivity() {
                             CenterAlignedTopAppBar(
                                 title = {
                                     Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
-                                        Text(
-                                            text = "WEALTHFLOW",
-                                            fontWeight = FontWeight.ExtraBold,
-                                            style = MaterialTheme.typography.titleMedium,
-                                            letterSpacing = 1.6.sp
-                                        )
-                                        Text(
-                                            text = "${countryConfig.country.uppercase()} PORTFOLIO (${countryConfig.currency})",
-                                            fontSize = 9.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            letterSpacing = 1.sp
-                                        )
+                                        Row(
+                                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(8.dp)
+                                                    .background(MaterialTheme.colorScheme.primary, shape = androidx.compose.foundation.shape.CircleShape)
+                                            )
+                                            Text(
+                                                text = "WEALTHFLOW",
+                                                fontWeight = FontWeight.Black,
+                                                style = MaterialTheme.typography.titleMedium,
+                                                letterSpacing = 2.sp,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                        }
+                                        Surface(
+                                            shape = RoundedCornerShape(20.dp),
+                                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                                            modifier = Modifier.padding(top = 2.dp)
+                                        ) {
+                                            Text(
+                                                text = "  ${countryConfig.country.uppercase()} PORTFOLIO (${countryConfig.currency})  ",
+                                                fontSize = 8.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                letterSpacing = 0.8.sp,
+                                                modifier = Modifier.padding(vertical = 2.dp, horizontal = 6.dp)
+                                            )
+                                        }
                                     }
                                 },
                                 actions = {
@@ -407,7 +464,8 @@ class MainActivity : FragmentActivity() {
                                     ) {
                                         Icon(
                                             imageVector = Icons.Default.Storage,
-                                            contentDescription = "Data Management Settings"
+                                            contentDescription = "Data Management Settings",
+                                            tint = MaterialTheme.colorScheme.onSurface
                                         )
                                     }
                                     IconButton(
@@ -416,7 +474,8 @@ class MainActivity : FragmentActivity() {
                                     ) {
                                         Icon(
                                             imageVector = Icons.Default.Share,
-                                            contentDescription = "Export CSV Report"
+                                            contentDescription = "Export CSV Report",
+                                            tint = MaterialTheme.colorScheme.onSurface
                                         )
                                     }
                                     IconButton(
@@ -425,7 +484,8 @@ class MainActivity : FragmentActivity() {
                                     ) {
                                         Icon(
                                             imageVector = if (isDarkTheme) Icons.Default.LightMode else Icons.Default.DarkMode,
-                                            contentDescription = "Toggle Theme"
+                                            contentDescription = "Toggle Theme",
+                                            tint = MaterialTheme.colorScheme.primary
                                         )
                                     }
                                     IconButton(
@@ -437,15 +497,15 @@ class MainActivity : FragmentActivity() {
                                     ) {
                                         Icon(
                                             imageVector = Icons.AutoMirrored.Filled.Logout,
-                                            contentDescription = "Sign Out"
+                                            contentDescription = "Sign Out",
+                                            tint = com.example.ui.theme.ExpenseRose
                                         )
                                     }
                                 },
                                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                                     containerColor = MaterialTheme.colorScheme.surface
                                 ),
-                                modifier = Modifier
-                                    .testTag("app_top_bar")
+                                modifier = Modifier.testTag("app_top_bar")
                             )
                         },
                         contentWindowInsets = WindowInsets.safeDrawing // manage top/bottom safe notch/system layouts perfectly

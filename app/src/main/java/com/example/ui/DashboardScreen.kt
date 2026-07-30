@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -1752,6 +1753,11 @@ fun DashboardScreen(
                     }
                 }
             }
+        }
+
+        // --- 2B. GEMINI AI CONTEXT-AWARE SPENDING TOOLTIPS ---
+        item {
+            ContextAwareAiInsightsTooltipsCard(viewModel = viewModel, isDark = isDark)
         }
 
         // --- 3. ACCOUNTS SNAPSHOTS (HORIZONTAL SCROLLER SIMULATOR) ---
@@ -5167,6 +5173,299 @@ fun AchievementBadgeItem(
 
             Text(progressText, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = if (isUnlocked) AccentGold else MaterialTheme.colorScheme.onSurfaceVariant)
         }
+    }
+}
+
+data class AiTooltipItem(
+    val id: String,
+    val categoryTag: String,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector,
+    val chipLabel: String,
+    val shortSummary: String,
+    val detailedAdvice: String,
+    val severityColor: Color
+)
+
+@Composable
+fun ContextAwareAiInsightsTooltipsCard(
+    viewModel: MainViewModel,
+    isDark: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val allTransactions by viewModel.allTransactions.collectAsState()
+    val categories by viewModel.categories.collectAsState()
+    val activeBudgets by viewModel.activeBudgets.collectAsState()
+    val config by viewModel.activeCountryConfig.collectAsState()
+
+    var selectedTooltip by remember { mutableStateOf<AiTooltipItem?>(null) }
+    var aiDynamicResponse by remember { mutableStateOf<String?>(null) }
+
+    // Dynamic tooltips computation
+    val tooltips = remember(allTransactions, categories, activeBudgets, config) {
+        val list = mutableListOf<AiTooltipItem>()
+        val expenseTxs = allTransactions.filter { it.type == "EXPENSE" }
+        val totalSpent = expenseTxs.sumOf { it.amount }
+
+        // 1. Top category spending tooltip
+        val catMap = categories.associate { it.id to it.name }
+        val topCategoryEntry = expenseTxs.groupBy { catMap[it.categoryId] ?: "Other" }
+            .mapValues { (_, txs) -> txs.sumOf { it.amount } }
+            .maxByOrNull { it.value }
+
+        if (topCategoryEntry != null && totalSpent > 0) {
+            val pct = ((topCategoryEntry.value / totalSpent) * 100).toInt()
+            val formattedAmt = "${config.currencySymbol}${String.format(Locale.US, "%.2f", topCategoryEntry.value)}"
+            list.add(
+                AiTooltipItem(
+                    id = "top_cat_surge",
+                    categoryTag = "SPENDING SURGE",
+                    icon = Icons.Default.TrendingUp,
+                    chipLabel = "💡 ${topCategoryEntry.key} ($pct% of total)",
+                    shortSummary = "${topCategoryEntry.key} is your largest expense bucket this period ($formattedAmt).",
+                    detailedAdvice = "Gemini AI Recommendation: Your ${topCategoryEntry.key} expenditure constitutes $pct% of your overall monthly outflows. Consider setting a dedicated monthly budget limit or reviewing recurring merchants in this category to optimize savings.",
+                    severityColor = Color(0xFF3B82F6)
+                )
+            )
+        }
+
+        // 2. Budget proximity tooltip
+        val budgetAlert = activeBudgets.mapNotNull { b ->
+            val catName = catMap[b.categoryId] ?: "Category"
+            val pct = if (b.amount > 0) (b.spent / b.amount) * 100 else 0.0
+            if (pct >= 75.0) Triple(catName, pct, b) else null
+        }.maxByOrNull { it.second }
+
+        if (budgetAlert != null) {
+            val (catName, pct, _) = budgetAlert
+            list.add(
+                AiTooltipItem(
+                    id = "budget_threshold",
+                    categoryTag = "BUDGET ALERT",
+                    icon = Icons.Default.Warning,
+                    chipLabel = "⚠️ $catName Budget (${pct.toInt()}% used)",
+                    shortSummary = "$catName budget is near capacity at ${pct.toInt()}% utilization.",
+                    detailedAdvice = "Gemini AI Warning: You have consumed ${pct.toInt()}% of your allocated threshold for $catName. At current velocity, you risk exceeding this budget before month-end. Consider pacing non-essential purchases.",
+                    severityColor = Color(0xFFE53935)
+                )
+            )
+        }
+
+        // 3. Tax deduction tooltip
+        val taxDeductibleCount = expenseTxs.count { it.isTaxDeductible }
+        if (taxDeductibleCount > 0) {
+            val taxDeductibleSum = expenseTxs.filter { it.isTaxDeductible }.sumOf { it.amount }
+            val formattedTaxSum = "${config.currencySymbol}${String.format(Locale.US, "%.2f", taxDeductibleSum)}"
+            list.add(
+                AiTooltipItem(
+                    id = "tax_deduction",
+                    categoryTag = "TAX SAVINGS",
+                    icon = Icons.Default.Verified,
+                    chipLabel = "✨ Tax Deductions ($formattedTaxSum)",
+                    shortSummary = "$taxDeductibleCount tax-deductible items flagged for ${config.country} compliance.",
+                    detailedAdvice = "Gemini AI Tax Advisor: You have recorded $taxDeductibleCount tax-deductible expenses totaling $formattedTaxSum. Under ${config.country} tax regulations, these can lower your overall taxable liability.",
+                    severityColor = FintechGreen
+                )
+            )
+        }
+
+        // 4. Inflow vs Outflow velocity tooltip
+        val incomeTxs = allTransactions.filter { it.type == "INCOME" }
+        val totalIncome = incomeTxs.sumOf { it.amount }
+        val savingsRate = if (totalIncome > 0) ((totalIncome - totalSpent) / totalIncome) * 100 else 0.0
+        list.add(
+            AiTooltipItem(
+                id = "savings_rate",
+                categoryTag = "SAVINGS RATE",
+                icon = Icons.Default.AutoAwesome,
+                chipLabel = "📈 Net Savings Rate (${savingsRate.toInt()}%)",
+                shortSummary = "Current net savings margin stands at ${savingsRate.toInt()}%.",
+                detailedAdvice = "Gemini AI Cashflow Velocity: Your current monthly savings rate is ${savingsRate.toInt()}%. Wealth managers recommend maintaining at least a 20% net margin to support long-term investment goals and emergency buffers.",
+                severityColor = AccentGold
+            )
+        )
+
+        list
+    }
+
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = if (isDark) Color(0xFF1E232A) else Color(0xFFF3F6FA)
+        ),
+        shape = RoundedCornerShape(20.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)),
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("ai_context_tooltips_card")
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.AutoAwesome,
+                        contentDescription = "AI Tooltips",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Column {
+                        Text(
+                            text = "GEMINI AI CONTEXT-AWARE TOOLTIPS",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            letterSpacing = 0.8.sp
+                        )
+                        Text(
+                            text = "Tap chips for real-time spending intelligence & AI guidance",
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                IconButton(
+                    onClick = { viewModel.triggerGeminiEvaluation() },
+                    modifier = Modifier.size(28.dp).testTag("ai_tooltips_refresh_btn")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = "Refresh AI Tooltips",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Scrollable horizontal row of context-aware tooltips
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth().testTag("ai_tooltips_lazy_row")
+            ) {
+                items(tooltips, key = { it.id }) { tooltip ->
+                    Surface(
+                        onClick = { selectedTooltip = tooltip },
+                        shape = RoundedCornerShape(12.dp),
+                        color = tooltip.severityColor.copy(alpha = 0.12f),
+                        border = BorderStroke(1.dp, tooltip.severityColor.copy(alpha = 0.35f)),
+                        modifier = Modifier.testTag("ai_tooltip_chip_${tooltip.id}")
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = tooltip.icon,
+                                contentDescription = null,
+                                tint = tooltip.severityColor,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Text(
+                                text = tooltip.chipLabel,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Modal dialog when tooltip chip is tapped
+    if (selectedTooltip != null) {
+        val activeTooltip = selectedTooltip!!
+        AlertDialog(
+            onDismissRequest = {
+                selectedTooltip = null
+                aiDynamicResponse = null
+            },
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = activeTooltip.icon,
+                        contentDescription = null,
+                        tint = activeTooltip.severityColor,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Column {
+                        Text(
+                            text = activeTooltip.categoryTag,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = activeTooltip.severityColor
+                        )
+                        Text(
+                            text = "Gemini Contextual Spending Insight",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                    }
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = activeTooltip.shortSummary,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                    
+                    Text(
+                        text = activeTooltip.detailedAdvice,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        lineHeight = 16.sp
+                    )
+
+                    if (aiDynamicResponse != null) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = aiDynamicResponse!!,
+                                fontSize = 11.sp,
+                                modifier = Modifier.padding(10.dp),
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.triggerGeminiEvaluation()
+                        selectedTooltip = null
+                    },
+                    modifier = Modifier.testTag("ai_tooltip_action_btn")
+                ) {
+                    Text("Run Full AI Audit", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { selectedTooltip = null },
+                    modifier = Modifier.testTag("ai_tooltip_dismiss_btn")
+                ) {
+                    Text("Close", fontSize = 11.sp)
+                }
+            }
+        )
     }
 }
 

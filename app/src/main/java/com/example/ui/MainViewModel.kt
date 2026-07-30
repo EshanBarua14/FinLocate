@@ -969,6 +969,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // Run database background pruning and optimization on boot
             try {
                 com.example.data.service.DatabasePrunerUtility.pruneAndOptimize(application, db)
+                com.example.data.worker.CacheCleanupWorker.schedulePeriodic(application)
+                com.example.data.worker.ExchangeRateWorker.schedulePeriodic(application)
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -2201,6 +2203,57 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val allRecurring: StateFlow<List<RecurringTransactionEntity>> = repository.allRecurring
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val recurringSuggestions: StateFlow<List<com.example.data.service.RecurringSuggestion>> = combine(
+        allTransactions,
+        allRecurring
+    ) { txList, recList ->
+        com.example.data.service.RecurringDetectorService.analyzeTransactions(txList, recList)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun convertSuggestionToRecurring(suggestion: com.example.data.service.RecurringSuggestion) {
+        viewModelScope.launch {
+            val intervalMs = when (suggestion.frequency) {
+                "WEEKLY" -> 7 * 24 * 60 * 60 * 1000L
+                "MONTHLY" -> 30 * 24 * 60 * 60 * 1000L
+                "YEARLY" -> 365 * 24 * 60 * 60 * 1000L
+                else -> 30 * 24 * 60 * 60 * 1000L
+            }
+            val newEntity = RecurringTransactionEntity(
+                amount = suggestion.estimatedAmount,
+                type = "EXPENSE",
+                categoryId = suggestion.categoryId,
+                accountId = suggestion.accountId,
+                merchant = suggestion.merchant,
+                notes = suggestion.sampleNotes,
+                recurrenceInterval = suggestion.frequency,
+                lastExecutionTimestamp = suggestion.lastDate,
+                nextExecutionTimestamp = suggestion.lastDate + intervalMs,
+                isActive = true
+            )
+            repository.insertRecurring(newEntity)
+            postNotification("Added recurring subscription: '${suggestion.merchant}' (${formatCurrency(suggestion.estimatedAmount)} / ${suggestion.frequency.lowercase()})")
+        }
+    }
+
+    fun syncExchangeRatesNow(context: android.content.Context, onResult: (Boolean, Int) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val count = com.example.data.worker.ExchangeRateWorker.fetchAndUpdateRates(context)
+                if (count > 0) {
+                    val sqliteRates = db.exchangeRateDao().getAllRatesStatic()
+                    val loadedMap = sqliteRates.associate { it.currency to it.rate }
+                    _exchangeRates.value = loadedMap
+                    postNotification("Synced $count live exchange rates via WorkManager!")
+                    onResult(true, count)
+                } else {
+                    onResult(false, 0)
+                }
+            } catch (e: Exception) {
+                onResult(false, 0)
+            }
+        }
+    }
+
     val allDebts: StateFlow<List<UserDebtEntity>> = repository.allDebts
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -2706,6 +2759,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 context.startActivity(android.content.Intent.createChooser(shareIntent, "Share Tax Report"))
             } catch (fallbackEx: Exception) {
                 android.widget.Toast.makeText(context, "Export error: ${fallbackEx.message}", android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    fun exportTaxReportToPdf(context: android.content.Context) {
+        val txs = allTransactions.value.filter { it.isTaxDeductible && it.type == "EXPENSE" }
+        val cats = categories.value
+        val currentMonthStr = selectedMonth.value
+        val config = activeCountryConfig.value
+
+        try {
+            val pdfFile = com.example.data.service.PdfExportHelper.generatePdfReport(context, txs, cats, "Tax Deductibles - ${config.fiscalYear}", config)
+            val fileUri = androidx.core.content.FileProvider.getUriForFile(
+                context,
+                "com.example.fileprovider",
+                pdfFile
+            )
+
+            val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                type = "application/pdf"
+                putExtra(android.content.Intent.EXTRA_SUBJECT, "WealthFlow PDF Tax Deductible Report - ${config.country}")
+                putExtra(android.content.Intent.EXTRA_STREAM, fileUri)
+                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(android.content.Intent.createChooser(shareIntent, "Share PDF Tax Report"))
+            postNotification("Generated and shared PDF Tax Report successfully!")
+        } catch (e: Exception) {
+            android.widget.Toast.makeText(context, "PDF Tax Report error: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+        }
+    }
+
+    fun runCacheCleanup(onComplete: (Long) -> Unit) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val bytesFreed = com.example.data.worker.CacheCleanupWorker.performCleanup(getApplication())
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                onComplete(bytesFreed)
             }
         }
     }

@@ -498,5 +498,118 @@ fun DataManagementScreen(
                 }
             }
         }
+
+        // Section 4: Storage Optimization & WorkManager Cache Maintenance
+        item {
+            var isCleaningCache by remember { mutableStateOf(false) }
+            var cacheCleanResult by remember { mutableStateOf("") }
+
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                modifier = Modifier.fillMaxWidth().testTag("cache_maintenance_card")
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CleaningServices,
+                            contentDescription = "Cache Cleanup",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = "STORAGE OPTIMIZATION & WORKMANAGER CACHE CLEANUP",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+
+                    Text(
+                        text = "Automatically purges expired image caches, temporary receipt scans, and old PDF/CSV export files using WorkManager to optimize device memory.",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text("WorkManager Routine Schedule", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Text("Automated background maintenance every 7 days", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Surface(
+                                color = FintechGreen.copy(alpha = 0.15f),
+                                shape = RoundedCornerShape(6.dp)
+                            ) {
+                                Text(
+                                    text = "ACTIVE",
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = FintechGreen,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    if (cacheCleanResult.isNotEmpty()) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = cacheCleanResult,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(10.dp)
+                            )
+                        }
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            isCleaningCache = true
+                            viewModel.runCacheCleanup { freedBytes ->
+                                isCleaningCache = false
+                                val freedFormatted = if (freedBytes > 1024 * 1024) {
+                                    String.format("%.2f MB", freedBytes / (1024.0 * 1024.0))
+                                } else {
+                                    "${freedBytes / 1024} KB"
+                                }
+                                cacheCleanResult = "Successfully optimized device memory! Purged $freedFormatted of temporary cache and expired receipt scans."
+                            }
+                        },
+                        enabled = !isCleaningCache,
+                        modifier = Modifier.fillMaxWidth().testTag("clear_cache_now_btn"),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        if (isCleaningCache) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Purging Cache...")
+                        } else {
+                            Icon(imageVector = Icons.Default.DeleteSweep, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Run WorkManager Cache Cleanup Now")
+                        }
+                    }
+                }
+            }
+        }
     }
 }

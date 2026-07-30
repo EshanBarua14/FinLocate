@@ -189,17 +189,39 @@ fun TaxScreen(
                     HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    Button(
-                        onClick = { 
-                            showExportSuccess = true
-                            viewModel.exportTaxReportToCsv(context)
-                        },
-                        modifier = Modifier.fillMaxWidth().testTag("export_tax_ledger_btn"),
-                        shape = RoundedCornerShape(12.dp)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(imageVector = Icons.Default.Download, contentDescription = "Export")
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("GENERATE REGIONAL TAX EXPORT", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        Button(
+                            onClick = { 
+                                showExportSuccess = true
+                                viewModel.exportTaxReportToPdf(context)
+                            },
+                            modifier = Modifier.weight(1f).testTag("export_tax_pdf_btn"),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        ) {
+                            Icon(imageVector = Icons.Default.Receipt, contentDescription = "Export PDF", modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("EXPORT PDF", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                        }
+
+                        Button(
+                            onClick = { 
+                                showExportSuccess = true
+                                viewModel.exportTaxReportToCsv(context)
+                            },
+                            modifier = Modifier.weight(1f).testTag("export_tax_ledger_btn"),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(imageVector = Icons.Default.Download, contentDescription = "Export CSV", modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("EXPORT CSV", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))

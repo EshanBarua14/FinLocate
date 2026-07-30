@@ -248,6 +248,35 @@ fun StandaloneCurrencyConverterWidget(
                     )
                 }
             }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            val context = androidx.compose.ui.platform.LocalContext.current
+            var isSyncingRates by remember { mutableStateOf(false) }
+
+            OutlinedButton(
+                onClick = {
+                    isSyncingRates = true
+                    viewModel.syncExchangeRatesNow(context) { success, count ->
+                        isSyncingRates = false
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("sync_rates_workmanager_btn"),
+                shape = RoundedCornerShape(10.dp),
+                enabled = !isSyncingRates
+            ) {
+                if (isSyncingRates) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Fetching Exchange Rates via WorkManager...", fontSize = 11.sp)
+                } else {
+                    Icon(imageVector = Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Sync Live Rates via WorkManager API", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+            }
         }
     }
 }
@@ -1060,6 +1089,74 @@ fun DebtPayoffTimelineComponent(
     }
 }
 
+
+enum class DebtStrategy { SNOWBALL, AVALANCHE }
+
+data class DebtStrategyResult(
+    val strategy: DebtStrategy,
+    val totalMonths: Int,
+    val totalInterestPaid: Double,
+    val payoffOrder: List<Pair<String, Int>>
+)
+
+fun calculateDebtStrategyPayoff(
+    debts: List<UserDebtEntity>,
+    extraMonthly: Double,
+    strategy: DebtStrategy
+): DebtStrategyResult {
+    if (debts.isEmpty()) return DebtStrategyResult(strategy, 0, 0.0, emptyList())
+
+    class ActiveDebt(val name: String, var balance: Double, val rate: Double, val minPayment: Double)
+
+    val activeDebts = debts.map { d ->
+        val minPay = if (d.monthlyPayment > 0) d.monthlyPayment else calculateStandardMonthlyPayment(d.amount, d.interestRate, d.termMonths)
+        ActiveDebt(d.name, d.amount, d.interestRate / 100.0 / 12.0, maxOf(10.0, minPay))
+    }.toMutableList()
+
+    var month = 0
+    var totalInterest = 0.0
+    val payoffOrder = mutableListOf<Pair<String, Int>>()
+
+    while (activeDebts.any { it.balance > 0.01 } && month < 360) {
+        month++
+        val sortedActive = activeDebts.filter { it.balance > 0.01 }.sortedWith(
+            if (strategy == DebtStrategy.SNOWBALL) {
+                compareBy { it.balance }
+            } else {
+                compareByDescending { it.rate }
+            }
+        )
+
+        var availableExtra = extraMonthly
+
+        for (d in sortedActive) {
+            val interest = d.balance * d.rate
+            totalInterest += interest
+            d.balance += interest
+
+            val actualPayment = minOf(d.balance, d.minPayment)
+            d.balance -= actualPayment
+
+            if (d.balance <= 0.01 && !payoffOrder.any { it.first == d.name }) {
+                payoffOrder.add(d.name to month)
+            }
+        }
+
+        for (d in sortedActive) {
+            if (d.balance > 0.01 && availableExtra > 0) {
+                val extraApplied = minOf(d.balance, availableExtra)
+                d.balance -= extraApplied
+                availableExtra -= extraApplied
+
+                if (d.balance <= 0.01 && !payoffOrder.any { it.first == d.name }) {
+                    payoffOrder.add(d.name to month)
+                }
+            }
+        }
+    }
+
+    return DebtStrategyResult(strategy, month, totalInterest, payoffOrder)
+}
 
 // Math Helpers for Debt calculations
 private fun calculateStandardMonthlyPayment(principal: Double, annualRate: Double, termMonths: Int): Double {
@@ -1879,7 +1976,7 @@ fun DedicatedSavingsGoalsTrackerComponent(
                                         .clip(RoundedCornerShape(3.dp))
                                 )
                                 
-                                if (isCompleted) {
+                                 if (isCompleted) {
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
                                         text = "TARGET ACCOMPLISHED! 🎉",
@@ -1887,6 +1984,35 @@ fun DedicatedSavingsGoalsTrackerComponent(
                                         fontWeight = FontWeight.Black,
                                         color = FintechGreen
                                     )
+                                } else {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    val remainingAmt = maxOf(0.0, goal.targetAmount - goal.savedAmount)
+                                    val monthsLeft = maxOf(1.0, daysRemaining / 30.0)
+                                    val monthlyNeeded = remainingAmt / monthsLeft
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
+                                        shape = RoundedCornerShape(6.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = "Required Monthly Savings:",
+                                                fontSize = 9.sp,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                            Text(
+                                                text = "${viewModel.formatCurrency(monthlyNeeded)} / mo",
+                                                fontSize = 10.sp,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -3298,4 +3424,97 @@ data class DetectedSubscription(
     val daysSinceLastCharge: Long,
     val frequency: String
 )
+
+@Composable
+fun SmartSubscriptionDetectorComponent(
+    viewModel: MainViewModel,
+    modifier: Modifier = Modifier
+) {
+    val suggestions by viewModel.recurringSuggestions.collectAsState()
+
+    if (suggestions.isEmpty()) return
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("subscription_detector_card")
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.AutoAwesome,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    Text(
+                        text = "SUGGESTED RECURRING EXPENSES & SUBSCRIPTIONS",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp
+                    )
+                    Text(
+                        text = "Analysis engine detected ${suggestions.size} un-tracked recurring pattern(s)",
+                        fontSize = 10.sp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                    )
+                }
+            }
+
+            suggestions.forEach { sug ->
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .padding(12.dp)
+                            .fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = sug.merchant,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "${sug.sampleNotes} • ~${viewModel.formatCurrency(sug.estimatedAmount)} / ${sug.frequency.lowercase()}",
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        Button(
+                            onClick = { viewModel.convertSuggestionToRecurring(sug) },
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                            modifier = Modifier
+                                .height(32.dp)
+                                .testTag("track_recurring_${sug.merchant.lowercase().replace(" ", "_")}")
+                        ) {
+                            Text("Track Recurring", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 
