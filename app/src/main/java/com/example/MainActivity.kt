@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.automirrored.filled.Backspace
 import androidx.compose.material.icons.automirrored.filled.ListAlt
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -80,7 +81,16 @@ class MainActivity : FragmentActivity() {
         setContent {
             val isDarkTheme by viewModel.isDarkTheme.collectAsState()
             MyApplicationTheme(darkTheme = isDarkTheme, dynamicColor = false) {
-                if (!isUnlocked) {
+                val authPrefs = remember { getSharedPreferences("finance_tracker_auth_prefs", MODE_PRIVATE) }
+                var isLoggedIn by remember { mutableStateOf(authPrefs.getBoolean("is_logged_in", false)) }
+
+                if (!isLoggedIn) {
+                    AuthScreen(
+                        onAuthSuccess = {
+                            isLoggedIn = true
+                        }
+                    )
+                } else if (!isUnlocked) {
                     val sharedPrefs = remember { getSharedPreferences("wealthflow_security_prefs", MODE_PRIVATE) }
                     var savedPin by remember { mutableStateOf(sharedPrefs.getString("secure_pin", "") ?: "") }
                     var pinFlowState by remember { mutableStateOf(if (savedPin.isEmpty()) "CREATE" else "ENTER") }
@@ -390,7 +400,7 @@ class MainActivity : FragmentActivity() {
                                         )
                                     }
                                 },
-                                 actions = {
+                                actions = {
                                     IconButton(
                                         onClick = { showDataManagementSheet = true },
                                         modifier = Modifier.testTag("action_data_management")
@@ -416,6 +426,18 @@ class MainActivity : FragmentActivity() {
                                         Icon(
                                             imageVector = if (isDarkTheme) Icons.Default.LightMode else Icons.Default.DarkMode,
                                             contentDescription = "Toggle Theme"
+                                        )
+                                    }
+                                    IconButton(
+                                        onClick = {
+                                            authPrefs.edit().putBoolean("is_logged_in", false).apply()
+                                            isLoggedIn = false
+                                        },
+                                        modifier = Modifier.testTag("action_logout")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.Logout,
+                                            contentDescription = "Sign Out"
                                         )
                                     }
                                 },

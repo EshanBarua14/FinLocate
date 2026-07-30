@@ -53,6 +53,12 @@ fun DataManagementScreen(
         }
     }
 
+    val authPrefs = remember { context.getSharedPreferences("finance_tracker_auth_prefs", Context.MODE_PRIVATE) }
+    var userEmail by remember { mutableStateOf(authPrefs.getString("active_user_email", "guest@financetracker.local") ?: "guest@financetracker.local") }
+    var userName by remember { mutableStateOf(authPrefs.getString("active_user_name", "Valued Member") ?: "Valued Member") }
+    var authProvider by remember { mutableStateOf(authPrefs.getString("active_auth_provider", "EMAIL") ?: "EMAIL") }
+    var is2FaEnabled by remember { mutableStateOf(authPrefs.getBoolean("2fa_${userEmail.lowercase().trim()}", false)) }
+
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
@@ -60,6 +66,79 @@ fun DataManagementScreen(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // Section 0: User Profile & Security Settings
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                shape = RoundedCornerShape(20.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                modifier = Modifier.fillMaxWidth().testTag("user_account_profile_card")
+            ) {
+                Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer,
+                                modifier = Modifier.size(44.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.AccountCircle,
+                                        contentDescription = "User Profile",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(28.dp)
+                                    )
+                                }
+                            }
+                            Column {
+                                Text(userName, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
+                                Text(userEmail, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+
+                        Surface(
+                            color = MaterialTheme.colorScheme.secondaryContainer,
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(
+                                text = authProvider,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("Two-Factor Authentication (2FA)", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text("Require SMS / Authenticator OTP on login", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Switch(
+                            checked = is2FaEnabled,
+                            onCheckedChange = { checked ->
+                                is2FaEnabled = checked
+                                authPrefs.edit().putBoolean("2fa_${userEmail.lowercase().trim()}", checked).apply()
+                                Toast.makeText(context, if (checked) "2FA Enabled for $userEmail" else "2FA Disabled", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.testTag("toggle_2fa_switch")
+                        )
+                    }
+                }
+            }
+        }
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
