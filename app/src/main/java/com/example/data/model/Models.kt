@@ -195,6 +195,7 @@ data class ExpenseEntity(
     val merchant: String = "",
     val notes: String = "",
     val receiptPath: String = "",
+    val tags: String = "",
     val createdAt: Long = System.currentTimeMillis()
 )
 

@@ -47,6 +47,25 @@ class ExchangeRateWorker(
         }
 
         suspend fun fetchAndUpdateRates(context: Context): Int = withContext(Dispatchers.IO) {
+            try {
+                val apiResponse = com.example.data.api.ExchangeRateApiClient.service.getLatestRates()
+                val newRates = apiResponse.rates
+                if (!newRates.isNullOrEmpty() && newRates.containsKey("USD")) {
+                    val db = AppDatabase.getDatabase(context)
+                    val entities = newRates.map { (cur, rateVal) ->
+                        ExchangeRateEntity(
+                            currency = cur,
+                            rate = rateVal,
+                            updatedAt = System.currentTimeMillis()
+                        )
+                    }
+                    db.exchangeRateDao().insertAllRates(entities)
+                    return@withContext entities.size
+                }
+            } catch (e: Exception) {
+                Log.w("ExchangeRateWorker", "Retrofit fetch failed, falling back to URLConnection: ${e.message}")
+            }
+
             val url = URL("https://open.er-api.com/v6/latest/USD")
             val conn = url.openConnection() as HttpURLConnection
             conn.requestMethod = "GET"
@@ -62,7 +81,7 @@ class ExchangeRateWorker(
                 }
 
                 if (newRates.isNotEmpty() && newRates.containsKey("USD")) {
-                    val db = AppDatabase.getInstance(context)
+                    val db = AppDatabase.getDatabase(context)
                     val entities = newRates.map { (cur, rateVal) ->
                         ExchangeRateEntity(
                             currency = cur,

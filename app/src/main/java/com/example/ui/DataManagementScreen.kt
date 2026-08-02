@@ -213,7 +213,7 @@ fun DataManagementScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(imageVector = Icons.Default.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Icon(imageVector = Icons.Default.Lock, contentDescription = "AES-256 database encryption security status icon", tint = MaterialTheme.colorScheme.primary)
                         Text(
                             text = "AES-256 ENCRYPTED DATABASE BACKUP & RECOVERY",
                             fontSize = 12.sp,
@@ -262,7 +262,7 @@ fun DataManagementScreen(
                             modifier = Modifier.fillMaxWidth().testTag("create_encrypted_backup_btn"),
                             shape = RoundedCornerShape(12.dp)
                         ) {
-                            Icon(imageVector = Icons.Default.Backup, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Icon(imageVector = Icons.Default.Backup, contentDescription = "Export encrypted database archive file icon", modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("Export Encrypted Backup to Local Storage")
                         }
@@ -402,7 +402,7 @@ fun DataManagementScreen(
                             shape = RoundedCornerShape(8.dp),
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                         ) {
-                            Icon(imageVector = Icons.Default.FileOpen, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Icon(imageVector = Icons.Default.FileOpen, contentDescription = "Pick CSV spreadsheet file from device storage", modifier = Modifier.size(14.dp))
                             Spacer(modifier = Modifier.width(4.dp))
                             Text("Pick File", fontSize = 11.sp)
                         }
@@ -451,7 +451,7 @@ fun DataManagementScreen(
                             .testTag("import_csv_btn"),
                         shape = RoundedCornerShape(12.dp)
                     ) {
-                        Icon(imageVector = Icons.Default.UploadFile, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Icon(imageVector = Icons.Default.UploadFile, contentDescription = "Parse and import CSV records into database", modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Parse & Import CSV to Database")
                     }
@@ -491,7 +491,7 @@ fun DataManagementScreen(
                             .testTag("export_csv_btn"),
                         shape = RoundedCornerShape(12.dp)
                     ) {
-                        Icon(imageVector = Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Icon(imageVector = Icons.Default.Download, contentDescription = "Export financial transactions to CSV file", modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Export Transaction History (CSV)")
                     }
@@ -603,7 +603,7 @@ fun DataManagementScreen(
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("Purging Cache...")
                         } else {
-                            Icon(imageVector = Icons.Default.DeleteSweep, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Icon(imageVector = Icons.Default.DeleteSweep, contentDescription = "Purge temporary cache and expired files", modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("Run WorkManager Cache Cleanup Now")
                         }

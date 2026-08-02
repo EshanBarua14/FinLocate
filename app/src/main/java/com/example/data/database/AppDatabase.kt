@@ -26,7 +26,7 @@ import com.example.data.model.*
         TaxCategoryEntity::class,
         RecurringExpenseEntity::class
     ],
-    version = 14, // bumped version to 14 to support RecurringExpenseEntity and TaxCategoryEntity monthly caps
+    version = 15, // bumped version to 15 to support ExpenseEntity tags column
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

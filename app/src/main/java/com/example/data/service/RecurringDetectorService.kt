@@ -41,7 +41,7 @@ object RecurringDetectorService {
         for ((_, txList) in candidateMap) {
             if (txList.size < 2) continue
 
-            val sorted = txList.sortedBy { it.date }
+            val sorted = txList.sortedBy { it.timestamp }
             val amounts = sorted.map { abs(it.amount) }
             val avgAmount = amounts.average()
 
@@ -52,7 +52,7 @@ object RecurringDetectorService {
             // Calculate intervals
             val intervals = mutableListOf<Long>()
             for (i in 0 until sorted.size - 1) {
-                val daysDiff = (sorted[i + 1].date - sorted[i].date) / (1000 * 60 * 60 * 24)
+                val daysDiff = (sorted[i + 1].timestamp - sorted[i].timestamp) / (1000 * 60 * 60 * 24)
                 intervals.add(daysDiff)
             }
 
@@ -75,7 +75,7 @@ object RecurringDetectorService {
                     estimatedAmount = avgAmount,
                     frequency = frequency,
                     occurrenceCount = txList.size,
-                    lastDate = latestTx.date,
+                    lastDate = latestTx.timestamp,
                     sampleNotes = "Detected $frequency pattern across ${txList.size} transactions"
                 )
             )

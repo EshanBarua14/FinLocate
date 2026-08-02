@@ -45,8 +45,20 @@ fun MyApplicationTheme(
   darkTheme: Boolean = isSystemInDarkTheme(),
   // Dynamic color is available on Android 12+
   dynamicColor: Boolean = true,
+  customPrimaryHex: String? = null,
   content: @Composable () -> Unit,
 ) {
+  val customPrimary = customPrimaryHex?.let {
+    try {
+      Color(android.graphics.Color.parseColor(it))
+    } catch (_: Exception) {
+      null
+    }
+  }
+
+  val baseDark = if (customPrimary != null) DarkColorScheme.copy(primary = customPrimary, secondary = customPrimary.copy(alpha = 0.85f)) else DarkColorScheme
+  val baseLight = if (customPrimary != null) LightColorScheme.copy(primary = customPrimary, secondary = customPrimary.copy(alpha = 0.85f)) else LightColorScheme
+
   val targetColorScheme =
     when {
       dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
@@ -54,8 +66,8 @@ fun MyApplicationTheme(
         if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
       }
 
-      darkTheme -> DarkColorScheme
-      else -> LightColorScheme
+      darkTheme -> baseDark
+      else -> baseLight
     }
 
   // Animating each color of the ColorScheme to achieve a smooth cross-fade transition

@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.BudgetEntity
 import com.example.data.model.CategoryEntity
+import com.example.ui.components.BudgetCategoryProgressBar
 import com.example.ui.theme.AccentGold
 import com.example.ui.theme.ExpenseRose
 import com.example.ui.theme.FintechGreen
@@ -1328,157 +1329,72 @@ fun BudgetCardItem(
     formatter: (Double) -> String,
     onEdit: () -> Unit
 ) {
-    val barColor = when {
-        pct >= 1.0f -> ExpenseRose
-        pct >= 0.85f -> AccentGold
-        else -> FintechGreen
-    }
+    Column {
+        BudgetCategoryProgressBar(
+            categoryName = category?.name ?: "Category Limit",
+            spent = budget.spent,
+            limit = budget.amount,
+            formatter = formatter,
+            isAdaptive = budget.isAdaptive,
+            onEdit = onEdit
+        )
 
-    val warningLabel = when {
-        pct >= 1.0f -> "CRITICAL OVERRUN (⚠️)"
-        pct >= 0.85f -> "CLOSE TO LIMIT (85%+)"
-        else -> "HEALTHY DENSITY"
-    }
+        if (budget.savingsGoal > 0.0) {
+            Spacer(modifier = Modifier.height(8.dp))
+            val actualSavings = (budget.amount - budget.spent).coerceAtLeast(0.0)
+            val savingsPct = if (budget.savingsGoal > 0.0) (actualSavings / budget.savingsGoal).toFloat() else 0f
+            val goalAchieved = actualSavings >= budget.savingsGoal
 
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        shape = RoundedCornerShape(16.dp)
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)
             ) {
-                Column {
-                    Text(
-                        text = category?.name ?: "Category Limit",
-                        fontWeight = FontWeight.ExtraBold,
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = warningLabel,
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = barColor
-                        )
-                        if (budget.isAdaptive) {
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Box(
-                                modifier = Modifier
-                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
-                                    .padding(horizontal = 4.dp, vertical = 1.dp)
-                            ) {
-                                Text("AI TUNED", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                            }
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = "SAVINGS GOAL PROGRESS",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = if (goalAchieved) "GOAL COMPLETED! 🎉" else "Saved ${formatter(actualSavings)} of ${formatter(budget.savingsGoal)}",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (goalAchieved) FintechGreen else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                            )
                         }
-                    }
-                }
-                IconButton(
-                    onClick = onEdit,
-                    modifier = Modifier.testTag("edit_budget_btn_${budget.categoryId}")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Edit,
-                        contentDescription = "Edit limits",
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Progress Bar Visual Gauge
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(10.dp)
-                    .clip(RoundedCornerShape(5.dp))
-                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .fillMaxWidth(kotlin.math.min(pct, 1.0f))
-                        .clip(RoundedCornerShape(5.dp))
-                        .background(barColor)
-                )
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column {
-                    Text(text = "CONSUMED", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f))
-                    Text(text = formatter(budget.spent), fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurface)
-                }
-
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(text = "LIMIT ALLOTTED", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f))
-                    Text(text = formatter(budget.amount), fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
-                }
-            }
-
-            if (budget.savingsGoal > 0.0) {
-                Spacer(modifier = Modifier.height(12.dp))
-                HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
-                Spacer(modifier = Modifier.height(10.dp))
-                
-                val actualSavings = (budget.amount - budget.spent).coerceAtLeast(0.0)
-                val savingsPct = if (budget.savingsGoal > 0.0) (actualSavings / budget.savingsGoal).toFloat() else 0f
-                val goalAchieved = actualSavings >= budget.savingsGoal
-                
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
                         Text(
-                            text = "SAVINGS GOAL PROGRESS",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Text(
-                            text = if (goalAchieved) "GOAL COMPLETED! 🎉" else "Saved ${formatter(actualSavings)} of ${formatter(budget.savingsGoal)}",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = if (goalAchieved) FintechGreen else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            text = "${(savingsPct * 100).toInt()}%",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Black,
+                            color = if (goalAchieved) FintechGreen else MaterialTheme.colorScheme.primary
                         )
                     }
-                    Text(
-                        text = "${(savingsPct * 100).toInt()}%",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Black,
-                        color = if (goalAchieved) FintechGreen else MaterialTheme.colorScheme.primary
-                    )
-                }
-                
-                Spacer(modifier = Modifier.height(6.dp))
-                
-                // Savings goal progress bar
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(8.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
-                ) {
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
                     Box(
                         modifier = Modifier
-                            .fillMaxHeight()
-                            .fillMaxWidth(kotlin.math.min(savingsPct, 1.0f))
+                            .fillMaxWidth()
+                            .height(8.dp)
                             .clip(RoundedCornerShape(4.dp))
-                            .background(if (goalAchieved) FintechGreen else FintechGreen.copy(alpha = 0.6f))
-                    )
+                            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .fillMaxWidth(kotlin.math.min(savingsPct, 1.0f))
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(if (goalAchieved) FintechGreen else FintechGreen.copy(alpha = 0.6f))
+                        )
+                    }
                 }
             }
         }

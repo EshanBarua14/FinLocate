@@ -1012,6 +1012,95 @@ fun DebtPayoffTimelineComponent(
                             )
                         }
                     }
+
+                    // Debt Strategy Calculator (Snowball vs Avalanche)
+                    var selectedStrategy by remember { mutableStateOf(DebtStrategy.SNOWBALL) }
+                    val strategyResult = calculateDebtStrategyPayoff(debts, extraPayment, selectedStrategy)
+
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+                            .padding(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "PAYOFF STRATEGY CALCULATOR",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                letterSpacing = 0.5.sp
+                            )
+
+                            Row(
+                                modifier = Modifier
+                                    .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(8.dp))
+                                    .padding(2.dp),
+                                horizontalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
+                                Surface(
+                                    color = if (selectedStrategy == DebtStrategy.SNOWBALL) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                    shape = RoundedCornerShape(6.dp),
+                                    modifier = Modifier
+                                        .clickable { selectedStrategy = DebtStrategy.SNOWBALL }
+                                        .testTag("snowball_strategy_btn")
+                                ) {
+                                    Text(
+                                        text = "Snowball",
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (selectedStrategy == DebtStrategy.SNOWBALL) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+
+                                Surface(
+                                    color = if (selectedStrategy == DebtStrategy.AVALANCHE) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                    shape = RoundedCornerShape(6.dp),
+                                    modifier = Modifier
+                                        .clickable { selectedStrategy = DebtStrategy.AVALANCHE }
+                                        .testTag("avalanche_strategy_btn")
+                                ) {
+                                    Text(
+                                        text = "Avalanche",
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (selectedStrategy == DebtStrategy.AVALANCHE) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        Text(
+                            text = if (selectedStrategy == DebtStrategy.SNOWBALL)
+                                "Snowball: Pays off smallest balances first for quick momentum."
+                            else
+                                "Avalanche: Pays off highest interest rates first to minimize total interest paid.",
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column {
+                                Text("Debt-Free Timeline", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
+                                Text("${strategyResult.totalMonths} months", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                            }
+
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text("Est. Interest Paid", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
+                                Text("${config.currencySymbol}${strategyResult.totalInterestPaid.toInt()}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                            }
+                        }
+                    }
                 }
             }
         }

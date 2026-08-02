@@ -2,6 +2,7 @@ package com.example.data.service
 
 import com.example.data.model.CountryConfig
 import java.text.NumberFormat
+import java.util.Currency
 import java.util.Locale
 
 object CurrencyFormatterHelper {
@@ -42,4 +43,35 @@ object CurrencyFormatterHelper {
             String.format(Locale.US, "%s%,.2f", config.currencySymbol, amount)
         }
     }
+
+    /**
+     * Formats transaction amounts dynamically using explicit Currency code and user's preferred Locale.
+     */
+    fun format(amount: Double, currencyCode: String, locale: Locale = Locale.getDefault()): String {
+        return try {
+            val formatInstance = NumberFormat.getCurrencyInstance(locale)
+            try {
+                formatInstance.currency = Currency.getInstance(currencyCode)
+            } catch (_: Exception) {}
+            formatInstance.format(amount)
+        } catch (e: Exception) {
+            val numberFormat = NumberFormat.getNumberInstance(locale).apply {
+                minimumFractionDigits = 2
+                maximumFractionDigits = 2
+            }
+            "$currencyCode ${numberFormat.format(amount)}"
+        }
+    }
+
+    /**
+     * Utility method to format amount with custom symbol and custom target locale.
+     */
+    fun formatAmount(amount: Double, currencySymbol: String, locale: Locale = Locale.getDefault()): String {
+        val numberFormat = NumberFormat.getNumberInstance(locale).apply {
+            minimumFractionDigits = 2
+            maximumFractionDigits = 2
+        }
+        return "$currencySymbol${numberFormat.format(amount)}"
+    }
 }
+

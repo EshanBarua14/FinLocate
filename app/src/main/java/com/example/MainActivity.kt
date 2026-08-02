@@ -71,17 +71,25 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge() // mandatory modern full-bleed edge-to-edge support
 
-        // Schedule background workers for recurring expenses and budget checks
+        // Schedule background workers for recurring expenses, budget checks, and daily database archival
         try {
             com.example.data.worker.RecurringExpenseWorker.scheduleWorker(this)
             com.example.data.worker.BudgetCheckWorker.scheduleWorker(this)
+            com.example.data.worker.DatabaseArchiveWorker.schedulePeriodic(this)
         } catch (e: Exception) {
             e.printStackTrace()
         }
 
         setContent {
             val isDarkTheme by viewModel.isDarkTheme.collectAsState()
-            MyApplicationTheme(darkTheme = isDarkTheme, dynamicColor = false) {
+            val brandColorHex by viewModel.brandColorHex.collectAsState()
+            val systemInDark = androidx.compose.foundation.isSystemInDarkTheme()
+            val effectiveDark = isDarkTheme || systemInDark
+            MyApplicationTheme(
+                darkTheme = effectiveDark,
+                dynamicColor = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S,
+                customPrimaryHex = brandColorHex
+            ) {
                 val authPrefs = remember { getSharedPreferences("finance_tracker_auth_prefs", MODE_PRIVATE) }
                 var isLoggedIn by remember { mutableStateOf(authPrefs.getBoolean("is_logged_in", false)) }
 

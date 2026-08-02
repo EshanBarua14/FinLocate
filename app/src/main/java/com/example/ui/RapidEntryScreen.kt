@@ -89,6 +89,7 @@ fun RapidEntryScreen(
     // Advanced Form Mode toggle + states
     var isFormMode by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     var formAmount by remember { mutableStateOf("") }
     var formCurrency by remember { mutableStateOf(config.currency) }
     var formCurrencySymbol by remember { mutableStateOf(config.currencySymbol) }
@@ -215,7 +216,7 @@ fun RapidEntryScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Icon(imageVector = Icons.Default.Bolt, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Icon(imageVector = Icons.Default.Bolt, contentDescription = "Switch to instant keypad entry mode", modifier = Modifier.size(16.dp))
                         Text("Instant Pad", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     }
                 }
@@ -229,7 +230,7 @@ fun RapidEntryScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Icon(imageVector = Icons.Default.Description, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Icon(imageVector = Icons.Default.Description, contentDescription = "Switch to detailed transaction form mode", modifier = Modifier.size(16.dp))
                         Text("Detailed Form", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     }
                 }
@@ -591,6 +592,7 @@ fun RapidEntryScreen(
                 onClick = {
                     val amtVal = amountStr.toDoubleOrNull() ?: 0.0
                     if (amtVal > 0) {
+                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                         viewModel.addTransaction(
                             amount = amtVal,
                             type = transactionType,
@@ -944,7 +946,7 @@ fun DetailedFormLayout(
                 onDismissRequest = { showVoiceDialog = false },
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Icon(imageVector = Icons.Default.Mic, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
+                        Icon(imageVector = Icons.Default.Mic, contentDescription = "AI voice dictation microphone icon", tint = MaterialTheme.colorScheme.secondary)
                         Text("AI Voice Dictation Narrator", fontWeight = FontWeight.Bold)
                     }
                 },
@@ -979,7 +981,7 @@ fun DetailedFormLayout(
                             ),
                             modifier = Modifier.fillMaxWidth().height(48.dp).testTag("start_voice_recording_btn")
                         ) {
-                            Icon(imageVector = Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Icon(imageVector = Icons.Default.Mic, contentDescription = "Activate voice speech recognition recorder", modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text("START VOICE RECORDING", fontWeight = FontWeight.Bold)
                         }

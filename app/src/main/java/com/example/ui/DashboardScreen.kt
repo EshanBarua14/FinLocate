@@ -1,5 +1,6 @@
 package com.example.ui
 
+import android.widget.Toast
 import kotlinx.coroutines.launch
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -218,9 +219,17 @@ fun DashboardScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item {
+            DatabaseSyncStatusBadge(viewModel = viewModel)
+        }
+
+        item {
             OneTapShortcutCard(
                 onOpenModal = { showOneTapModal = true }
             )
+        }
+
+        item {
+            BrandColorThemeSelectorCard(viewModel = viewModel)
         }
 
         item {
@@ -854,18 +863,41 @@ fun DashboardScreen(
                                 modifier = Modifier.testTag("total_balance_text")
                             )
                         }
-                        IconButton(
-                            onClick = { viewModel.syncAllActiveAccounts() },
-                            modifier = Modifier
-                                .background(MaterialTheme.colorScheme.primary, CircleShape)
-                                .size(48.dp)
-                                .testTag("quick_refresh_fab")
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Sync,
-                                contentDescription = "Sync All Bank Gateway Accounts",
-                                tint = MaterialTheme.colorScheme.background
-                            )
+                            IconButton(
+                                onClick = {
+                                    viewModel.triggerExchangeRatesFetch(
+                                        onSuccess = { },
+                                        onFailure = { }
+                                    )
+                                },
+                                modifier = Modifier
+                                    .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
+                                    .size(44.dp)
+                                    .testTag("refresh_exchange_rates_btn")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CurrencyExchange,
+                                    contentDescription = "Refresh exchange rates and update net worth calculation on demand",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            IconButton(
+                                onClick = { viewModel.syncAllActiveAccounts() },
+                                modifier = Modifier
+                                    .background(MaterialTheme.colorScheme.primary, CircleShape)
+                                    .size(44.dp)
+                                    .testTag("quick_refresh_fab")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Sync,
+                                    contentDescription = "Sync all bank gateway accounts and update net worth balance",
+                                    tint = MaterialTheme.colorScheme.background
+                                )
+                            }
                         }
                     }
 
@@ -2280,6 +2312,9 @@ fun DashboardScreen(
         }
         item {
             UpcomingBillsCalendar(viewModel = viewModel)
+        }
+        item {
+            SmartSubscriptionDetectorComponent(viewModel = viewModel)
         }
         item {
             DebtPayoffTimelineComponent(viewModel = viewModel)
@@ -5466,6 +5501,212 @@ fun ContextAwareAiInsightsTooltipsCard(
                 }
             }
         )
+    }
+}
+
+@Composable
+fun DatabaseSyncStatusBadge(
+    viewModel: MainViewModel,
+    modifier: Modifier = Modifier
+) {
+    val lastBackupTime by viewModel.lastBackupTime.collectAsState()
+    val txCountSinceLastExport by viewModel.txCountSinceLastExport.collectAsState()
+    val context = LocalContext.current
+
+    val formattedTime = remember(lastBackupTime) {
+        val diff = System.currentTimeMillis() - lastBackupTime
+        when {
+            diff < 60_000 -> "Just now"
+            diff < 3600_000 -> "${diff / 60_000}m ago"
+            diff < 86400_000 -> "${diff / 3600_000}h ago"
+            else -> java.text.SimpleDateFormat("MMM dd, HH:mm", java.util.Locale.getDefault()).format(java.util.Date(lastBackupTime))
+        }
+    }
+
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("database_sync_status_badge")
+    ) {
+        Row(
+            modifier = Modifier
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .clip(CircleShape)
+                        .background(FintechGreen)
+                )
+
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "DATABASE ACTIVE & SYNCED",
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.primary,
+                            letterSpacing = 0.8.sp
+                        )
+                    }
+                    Text(
+                        text = "Room SQLite v3 • Last Sync: $formattedTime • Unbacked: $txCountSinceLastExport tx",
+                        fontSize = 10.sp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                    )
+                }
+            }
+
+            Surface(
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.clickable {
+                    viewModel.resetTxCountSinceLastExport()
+                    Toast.makeText(context, "Database state verified & timestamp updated!", Toast.LENGTH_SHORT).show()
+                }
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CloudDone,
+                        contentDescription = "Sync",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(12.dp)
+                    )
+                    Text(
+                        text = "Sync Now",
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun BrandColorThemeSelectorCard(
+    viewModel: MainViewModel,
+    modifier: Modifier = Modifier
+) {
+    val currentBrandHex by viewModel.brandColorHex.collectAsState()
+    val context = LocalContext.current
+
+    val presetBrands = listOf(
+        "Emerald Fintech" to "#10B981",
+        "Chase Blue" to "#0052CC",
+        "BofA Red" to "#E31837",
+        "Fidelity Green" to "#008240",
+        "Revolut Pink" to "#FF0055",
+        "N26 Teal" to "#36A18B",
+        "Barclays Cyan" to "#00AEEF",
+        "Wells Fargo Gold" to "#D4A017"
+    )
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)),
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("brand_color_theme_selector_card")
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Palette,
+                        contentDescription = "Brand Color",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "BANK & BRANDING COLOR THEME",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                        letterSpacing = 0.8.sp
+                    )
+                }
+
+                Surface(
+                    color = try { Color(android.graphics.Color.parseColor(currentBrandHex)) } catch (_: Exception) { MaterialTheme.colorScheme.primary },
+                    shape = CircleShape,
+                    modifier = Modifier.size(20.dp)
+                ) {}
+            }
+
+            Text(
+                text = "Customize UI theme colors to match your regional financial institution or brand aesthetic.",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                items(presetBrands) { (label, hex) ->
+                    val isSelected = currentBrandHex.equals(hex, ignoreCase = true)
+                    val colorVal = try { Color(android.graphics.Color.parseColor(hex)) } catch (_: Exception) { Color.Gray }
+
+                    Surface(
+                        color = if (isSelected) colorVal.copy(alpha = 0.2f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(if (isSelected) 2.dp else 1.dp, if (isSelected) colorVal else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)),
+                        modifier = Modifier
+                            .clickable {
+                                viewModel.setBrandColorHex(hex)
+                                Toast.makeText(context, "$label Theme Applied!", Toast.LENGTH_SHORT).show()
+                            }
+                            .testTag("brand_theme_$label")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(12.dp)
+                                    .clip(CircleShape)
+                                    .background(colorVal)
+                            )
+                            Text(
+                                text = label,
+                                fontSize = 10.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

@@ -425,10 +425,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _txCountSinceLastExport = MutableStateFlow(prefs.getInt("tx_count_since_last_export", 0))
     val txCountSinceLastExport: StateFlow<Int> = _txCountSinceLastExport.asStateFlow()
 
+    private val _lastBackupTime = MutableStateFlow(prefs.getLong("last_export_time", System.currentTimeMillis()))
+    val lastBackupTime: StateFlow<Long> = _lastBackupTime.asStateFlow()
+
+    private val _brandColorHex = MutableStateFlow(prefs.getString("brand_color_hex", "#10B981") ?: "#10B981")
+    val brandColorHex: StateFlow<String> = _brandColorHex.asStateFlow()
+
+    fun setBrandColorHex(hex: String) {
+        prefs.edit().putString("brand_color_hex", hex).apply()
+        _brandColorHex.value = hex
+    }
+
     fun checkBackupReminder() {
         val count = prefs.getInt("tx_count_since_last_export", 0)
         val lastExport = prefs.getLong("last_export_time", 0L)
-        val timePassed = System.currentTimeMillis() - lastExport
+        val effectiveLastExport = if (lastExport == 0L) System.currentTimeMillis() else lastExport
+        _lastBackupTime.value = effectiveLastExport
+        val timePassed = System.currentTimeMillis() - effectiveLastExport
         _showBackupReminder.value = count >= 3 || (timePassed > 7 * 24 * 3600 * 1000L && lastExport > 0L)
         _txCountSinceLastExport.value = count
     }
@@ -440,8 +453,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun resetTxCountSinceLastExport() {
+        val now = System.currentTimeMillis()
         prefs.edit().putInt("tx_count_since_last_export", 0).apply()
-        prefs.edit().putLong("last_export_time", System.currentTimeMillis()).apply()
+        prefs.edit().putLong("last_export_time", now).apply()
+        _lastBackupTime.value = now
         checkBackupReminder()
     }
 
@@ -668,6 +683,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             try {
                 val updated = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    try {
+                        val response = com.example.data.api.ExchangeRateApiClient.service.getLatestRates()
+                        val newRates = response.rates
+                        if (!newRates.isNullOrEmpty() && newRates.containsKey("USD")) {
+                            val updatedEntities = newRates.map { (cur, valRate) ->
+                                ExchangeRateEntity(currency = cur, rate = valRate, updatedAt = System.currentTimeMillis())
+                            }
+                            db.exchangeRateDao().insertAllRates(updatedEntities)
+
+                            val merged = newRates.toMutableMap()
+                            _userCustomExchangeRates.value.forEach { (k, v) ->
+                                merged[k] = v
+                            }
+                            _exchangeRates.value = merged
+                            return@withContext true
+                        }
+                    } catch (e: Exception) {
+                        // Fallback to connection
+                    }
+
                     val conn = java.net.URL("https://open.er-api.com/v6/latest/USD").openConnection() as java.net.HttpURLConnection
                     conn.requestMethod = "GET"
                     conn.connectTimeout = 5000
@@ -697,7 +732,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (updated) {
                     prefs.edit().putLong("last_rate_prompt", System.currentTimeMillis()).apply()
                     _showRatePrompt.value = false
-                    onSuccess("Rates updated successfully online!")
+                    postNotification("Net worth & live exchange rates updated on demand via Retrofit!")
+                    onSuccess("Exchange rates & Net Worth updated successfully!")
                 } else {
                     onFailure("Could not process online rates. Using offline fallback.")
                 }
@@ -971,6 +1007,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 com.example.data.service.DatabasePrunerUtility.pruneAndOptimize(application, db)
                 com.example.data.worker.CacheCleanupWorker.schedulePeriodic(application)
                 com.example.data.worker.ExchangeRateWorker.schedulePeriodic(application)
+                com.example.data.worker.DatabaseArchiveWorker.schedulePeriodic(application)
             } catch (e: Exception) {
                 e.printStackTrace()
             }

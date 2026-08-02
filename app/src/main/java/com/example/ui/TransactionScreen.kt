@@ -1545,8 +1545,12 @@ fun TransactionItemRow(
                         }
                     }
 
+                    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
                     IconButton(
-                        onClick = onDelete,
+                        onClick = {
+                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                            onDelete()
+                        },
                         modifier = Modifier.size(28.dp).testTag("delete_tx_btn")
                     ) {
                         Icon(
