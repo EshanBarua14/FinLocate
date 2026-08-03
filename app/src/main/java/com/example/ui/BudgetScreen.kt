@@ -990,7 +990,10 @@ fun BudgetScreen(
                             category = cat,
                             pct = pct,
                             formatter = { viewModel.formatCurrency(it) },
-                            onEdit = { editingBudget = budget }
+                            onEdit = { editingBudget = budget },
+                            onLimitChanged = { newLimit ->
+                                viewModel.updateBudgetLimit(budget.categoryId, newLimit, budget.isAdaptive, budget.savingsGoal)
+                            }
                         )
                     }
                 }
@@ -1327,7 +1330,8 @@ fun BudgetCardItem(
     category: CategoryEntity?,
     pct: Float,
     formatter: (Double) -> String,
-    onEdit: () -> Unit
+    onEdit: () -> Unit,
+    onLimitChanged: ((Double) -> Unit)? = null
 ) {
     Column {
         BudgetCategoryProgressBar(
@@ -1336,7 +1340,8 @@ fun BudgetCardItem(
             limit = budget.amount,
             formatter = formatter,
             isAdaptive = budget.isAdaptive,
-            onEdit = onEdit
+            onEdit = onEdit,
+            onLimitChanged = onLimitChanged
         )
 
         if (budget.savingsGoal > 0.0) {

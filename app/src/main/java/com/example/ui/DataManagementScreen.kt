@@ -6,6 +6,7 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -58,6 +59,26 @@ fun DataManagementScreen(
     var userName by remember { mutableStateOf(authPrefs.getString("active_user_name", "Valued Member") ?: "Valued Member") }
     var authProvider by remember { mutableStateOf(authPrefs.getString("active_auth_provider", "EMAIL") ?: "EMAIL") }
     var is2FaEnabled by remember { mutableStateOf(authPrefs.getBoolean("2fa_${userEmail.lowercase().trim()}", false)) }
+    var showPushNotificationSettings by remember { mutableStateOf(false) }
+    var showAddCategoryDialog by remember { mutableStateOf(false) }
+    val categories by viewModel.categories.collectAsState()
+
+    if (showPushNotificationSettings) {
+        PushNotificationSettingsDialog(
+            categories = categories,
+            onDismiss = { showPushNotificationSettings = false }
+        )
+    }
+
+    if (showAddCategoryDialog) {
+        AddCustomCategoryDialog(
+            onDismiss = { showAddCategoryDialog = false },
+            onSave = { name, icon, isInc, subcats ->
+                viewModel.addCustomCategory(name, icon, isInc, subcats)
+                showAddCategoryDialog = false
+            }
+        )
+    }
 
     LazyColumn(
         modifier = modifier
@@ -135,6 +156,28 @@ fun DataManagementScreen(
                             },
                             modifier = Modifier.testTag("toggle_2fa_switch")
                         )
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("Category Push Notification Alerts", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text("Configure 50%, 75%, and 90% budget limit alerts", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+
+                        OutlinedButton(
+                            onClick = { showPushNotificationSettings = true },
+                            modifier = Modifier.testTag("open_push_notification_settings_btn")
+                        ) {
+                            Icon(imageVector = Icons.Default.NotificationsActive, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Configure", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }
@@ -611,5 +654,298 @@ fun DataManagementScreen(
                 }
             }
         }
+
+        // Section 5: Custom Transaction Categories Persistence
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                modifier = Modifier.fillMaxWidth().testTag("custom_categories_card")
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Category,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Column {
+                                Text(
+                                    text = "CUSTOM TRANSACTION CATEGORIES",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Text(
+                                    text = "${categories.size} Active Categories in Room Database",
+                                    fontSize = 10.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        Button(
+                            onClick = { showAddCategoryDialog = true },
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.testTag("add_custom_category_btn")
+                        ) {
+                            Icon(imageVector = Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("+ Add Category", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    Text(
+                        text = "Define user-created custom income or expense categories. These are persisted in Room database and immediately available in the Add Expense modal.",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    // Categories list chip row
+                    OptInFlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalSpacing = 6.dp,
+                        verticalSpacing = 6.dp
+                    ) {
+                        categories.forEach { cat ->
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (cat.isIncome) FintechGreen.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant,
+                                border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (cat.isIncome) Icons.Default.TrendingUp else Icons.Default.Label,
+                                        contentDescription = null,
+                                        tint = if (cat.isIncome) FintechGreen else MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                    Text(
+                                        text = cat.name,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Section 6: Theme Mode & System Listener Override
+        item {
+            val systemInDark = androidx.compose.foundation.isSystemInDarkTheme()
+            val isUserOverride = com.example.ui.theme.ThemeManager.isUserOverride
+            val currentTheme = com.example.ui.theme.ThemeManager.isDarkThemeState
+
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                modifier = Modifier.fillMaxWidth().testTag("theme_settings_card")
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Palette,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = "SYSTEM THEME & COLOR SCHEME LISTENER",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+
+                    Text(
+                        text = if (isUserOverride)
+                            "Manual Theme Override Active. App color scheme is set to ${if (currentTheme) "Dark Mode" else "Light Mode"}."
+                        else
+                            "Following System Preference (${if (systemInDark) "Dark Mode" else "Light Mode"}). Color scheme automatically syncs with Android system dark/light mode.",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                com.example.ui.theme.ThemeManager.resetToSystemTheme(systemInDark)
+                                viewModel.setDarkTheme(systemInDark)
+                            },
+                            modifier = Modifier.testTag("reset_system_theme_btn"),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(imageVector = Icons.Default.BrightnessAuto, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Follow System Dark/Light Mode", fontSize = 11.sp)
+                        }
+
+                        Switch(
+                            checked = currentTheme,
+                            onCheckedChange = { isChecked ->
+                                com.example.ui.theme.ThemeManager.setDarkMode(isChecked, isManual = true)
+                                viewModel.setDarkTheme(isChecked)
+                            },
+                            modifier = Modifier.testTag("theme_manual_switch")
+                        )
+                    }
+                }
+            }
+        }
     }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun OptInFlowRow(
+    modifier: Modifier = Modifier,
+    horizontalSpacing: androidx.compose.ui.unit.Dp = 4.dp,
+    verticalSpacing: androidx.compose.ui.unit.Dp = 4.dp,
+    content: @Composable () -> Unit
+) {
+    FlowRow(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(horizontalSpacing),
+        verticalArrangement = Arrangement.spacedBy(verticalSpacing),
+        content = { content() }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AddCustomCategoryDialog(
+    onDismiss: () -> Unit,
+    onSave: (name: String, iconName: String, isIncome: Boolean, subcategories: String) -> Unit
+) {
+    var categoryName by remember { mutableStateOf("") }
+    var isIncome by remember { mutableStateOf(false) }
+    var iconName by remember { mutableStateOf("shopping_bag") }
+    var subcategoriesInput by remember { mutableStateOf("") }
+
+    val availableIcons = listOf(
+        "shopping_bag", "restaurant", "directions_car", "home",
+        "work", "medical_services", "school", "flight", "fitness_center", "label"
+    )
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add Custom Category", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = categoryName,
+                    onValueChange = { categoryName = it },
+                    label = { Text("Category Name") },
+                    placeholder = { Text("e.g. Pet Care, Gaming") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().testTag("category_name_input")
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    FilterChip(
+                        selected = !isIncome,
+                        onClick = { isIncome = false },
+                        label = { Text("Expense") },
+                        modifier = Modifier.testTag("category_expense_chip")
+                    )
+                    FilterChip(
+                        selected = isIncome,
+                        onClick = { isIncome = true },
+                        label = { Text("Income") },
+                        modifier = Modifier.testTag("category_income_chip")
+                    )
+                }
+
+                Text("Select Icon", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    availableIcons.take(5).forEach { icon ->
+                        IconButton(
+                            onClick = { iconName = icon },
+                            modifier = Modifier
+                                .size(36.dp)
+                                .background(
+                                    color = if (iconName == icon) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                                    shape = RoundedCornerShape(8.dp)
+                                )
+                        ) {
+                            Icon(
+                                imageVector = when (icon) {
+                                    "restaurant" -> Icons.Default.Restaurant
+                                    "directions_car" -> Icons.Default.DirectionsCar
+                                    "home" -> Icons.Default.Home
+                                    "work" -> Icons.Default.Work
+                                    else -> Icons.Default.ShoppingBag
+                                },
+                                contentDescription = icon,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                }
+
+                OutlinedTextField(
+                    value = subcategoriesInput,
+                    onValueChange = { subcategoriesInput = it },
+                    label = { Text("Subcategories (comma separated)") },
+                    placeholder = { Text("e.g. Food, Toys, Vet") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().testTag("subcategories_input")
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (categoryName.isNotBlank()) {
+                        onSave(categoryName, iconName, isIncome, subcategoriesInput)
+                    }
+                },
+                enabled = categoryName.isNotBlank(),
+                modifier = Modifier.testTag("save_custom_category_btn")
+            ) {
+                Text("Save Category")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }

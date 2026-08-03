@@ -25,6 +25,7 @@ object BudgetNotificationService {
      * Returns a list of structured [BudgetAlert] alerts.
      */
     fun checkBudgets(
+        context: Context,
         budgets: List<BudgetEntity>,
         categories: List<CategoryEntity>
     ): List<BudgetAlert> {
@@ -37,7 +38,14 @@ object BudgetNotificationService {
             val percentage = ((spent / limit) * 100).toInt()
             val categoryName = categories.find { it.id == budget.categoryId }?.name ?: "Unknown"
 
-            if (percentage >= 100) {
+            val sharedPrefs = context.getSharedPreferences("wealthflow_budget_alerts_prefs", Context.MODE_PRIVATE)
+
+            val alert50Enabled = sharedPrefs.getBoolean("category_${budget.categoryId}_alert_50", true)
+            val alert75Enabled = sharedPrefs.getBoolean("category_${budget.categoryId}_alert_75", true)
+            val alert90Enabled = sharedPrefs.getBoolean("category_${budget.categoryId}_alert_90", true)
+            val alert100Enabled = sharedPrefs.getBoolean("category_${budget.categoryId}_alert_100", true)
+
+            if (percentage >= 100 && alert100Enabled) {
                 alerts.add(
                     BudgetAlert(
                         categoryId = budget.categoryId,
@@ -49,7 +57,7 @@ object BudgetNotificationService {
                         message = "🚨 Budget Alert (100% Reached): You have fully used your monthly budget for '$categoryName'! Spent $spent of $limit ($percentage%)."
                     )
                 )
-            } else if (percentage >= 80) {
+            } else if (percentage >= 90 && alert90Enabled) {
                 alerts.add(
                     BudgetAlert(
                         categoryId = budget.categoryId,
@@ -58,7 +66,31 @@ object BudgetNotificationService {
                         percentage = percentage,
                         spent = budget.spent,
                         limit = budget.amount,
-                        message = "⚠️ Budget Warning (80% Reached): You have used 80% or more of your budget limit for '$categoryName'. Spent $spent of $limit ($percentage%)."
+                        message = "🚨 Budget Urgent Warning (90% Reached): You have used $percentage% of your budget limit for '$categoryName'. Spent $spent of $limit."
+                    )
+                )
+            } else if (percentage >= 75 && alert75Enabled) {
+                alerts.add(
+                    BudgetAlert(
+                        categoryId = budget.categoryId,
+                        categoryName = categoryName,
+                        isExceeded = false,
+                        percentage = percentage,
+                        spent = budget.spent,
+                        limit = budget.amount,
+                        message = "⚠️ Budget Caution (75% Reached): You have reached 75% of your budget limit for '$categoryName'. Spent $spent of $limit."
+                    )
+                )
+            } else if (percentage >= 50 && alert50Enabled) {
+                alerts.add(
+                    BudgetAlert(
+                        categoryId = budget.categoryId,
+                        categoryName = categoryName,
+                        isExceeded = false,
+                        percentage = percentage,
+                        spent = budget.spent,
+                        limit = budget.amount,
+                        message = "🟢 Budget Halfway Milestone (50% Reached): You have used 50% of your budget limit for '$categoryName'. Spent $spent of $limit."
                     )
                 )
             }
@@ -75,7 +107,7 @@ object BudgetNotificationService {
         budgets: List<BudgetEntity>,
         categories: List<CategoryEntity>
     ): List<BudgetAlert> {
-        val alerts = checkBudgets(budgets, categories)
+        val alerts = checkBudgets(context, budgets, categories)
         alerts.forEach { alert ->
             triggerLocalSystemNotification(context, alert)
         }

@@ -87,6 +87,10 @@ class FinanceRepository(private val db: AppDatabase) {
     fun getAllCategories(): Flow<List<CategoryEntity>> =
         categoryDao.getAllCategories()
 
+    suspend fun insertCategory(category: CategoryEntity): Long = withContext(Dispatchers.IO) {
+        categoryDao.insertCategory(category)
+    }
+
     // --- Write Actions ---
     suspend fun insertAccount(account: AccountEntity) = withContext(Dispatchers.IO) {
         accountDao.insertAccount(account)

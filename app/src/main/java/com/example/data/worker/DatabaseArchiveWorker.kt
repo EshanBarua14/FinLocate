@@ -73,20 +73,57 @@ class DatabaseArchiveWorker(
             }
 
             val dateStr = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-            val targetBackupFile = File(archiveDir, "app_database_archive_$dateStr.db")
+            val targetEncryptedFile = File(archiveDir, "app_database_archive_$dateStr.db.enc")
 
-            var totalBytesCopied = copyFile(dbFile, targetBackupFile)
+            var totalBytesCopied = try {
+                encryptAndSaveFile(dbFile, targetEncryptedFile, "WealthFlow_DisasterRecovery_2026")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to encrypt DB file, falling back to copy", e)
+                val fallbackFile = File(archiveDir, "app_database_archive_$dateStr.db")
+                copyFile(dbFile, fallbackFile)
+            }
 
             // Also backup WAL file if present
             val walFile = File(dbFile.parentFile, "app_database-wal")
             if (walFile.exists()) {
-                val targetWalFile = File(archiveDir, "app_database_archive_$dateStr.db-wal")
-                totalBytesCopied += copyFile(walFile, targetWalFile)
+                val targetWalEncryptedFile = File(archiveDir, "app_database_archive_$dateStr.db-wal.enc")
+                totalBytesCopied += try {
+                    encryptAndSaveFile(walFile, targetWalEncryptedFile, "WealthFlow_DisasterRecovery_2026")
+                } catch (e: Exception) {
+                    copyFile(walFile, File(archiveDir, "app_database_archive_$dateStr.db-wal"))
+                }
             }
 
             pruneOldArchives(archiveDir)
 
             return totalBytesCopied
+        }
+
+        private fun encryptAndSaveFile(sourceFile: File, outputFile: File, passphrase: String): Long {
+            val bytes = sourceFile.readBytes()
+            val random = java.security.SecureRandom()
+            val salt = ByteArray(16)
+            val iv = ByteArray(12)
+            random.nextBytes(salt)
+            random.nextBytes(iv)
+
+            val factory = javax.crypto.SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+            val spec = javax.crypto.spec.PBEKeySpec(passphrase.toCharArray(), salt, 10000, 256)
+            val tmp = factory.generateSecret(spec)
+            val secretKey = javax.crypto.spec.SecretKeySpec(tmp.encoded, "AES")
+
+            val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+            val gcmSpec = javax.crypto.spec.GCMParameterSpec(128, iv)
+            cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, secretKey, gcmSpec)
+
+            val encryptedBytes = cipher.doFinal(bytes)
+
+            FileOutputStream(outputFile).use { fos ->
+                fos.write(salt)
+                fos.write(iv)
+                fos.write(encryptedBytes)
+            }
+            return outputFile.length()
         }
 
         private fun copyFile(source: File, destination: File): Long {

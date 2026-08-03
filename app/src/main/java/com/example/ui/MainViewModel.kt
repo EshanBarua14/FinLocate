@@ -439,11 +439,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun checkBackupReminder() {
         val count = prefs.getInt("tx_count_since_last_export", 0)
         val lastExport = prefs.getLong("last_export_time", 0L)
+        val lastManualBackup = prefs.getLong("last_manual_backup_timestamp", 0L)
+        val prompted30Day = prefs.getBoolean("backup_reminder_prompted", false)
+
         val effectiveLastExport = if (lastExport == 0L) System.currentTimeMillis() else lastExport
         _lastBackupTime.value = effectiveLastExport
         val timePassed = System.currentTimeMillis() - effectiveLastExport
         _showBackupReminder.value = count >= 3 || (timePassed > 7 * 24 * 3600 * 1000L && lastExport > 0L)
         _txCountSinceLastExport.value = count
+
+        val thirtyDaysMillis = 30L * 24 * 3600 * 1000
+        if (!prompted30Day && (lastManualBackup == 0L || System.currentTimeMillis() - lastManualBackup > thirtyDaysMillis)) {
+            prefs.edit().putBoolean("backup_reminder_prompted", true).apply()
+            postNotification("💾 Database Backup Reminder: You haven't performed an encrypted database backup in over 30 days. Export a backup in Settings to protect your financial history.")
+        }
     }
 
     fun incrementTxCountSinceLastExport() {
@@ -1013,6 +1022,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
+        // Check for 30-day database backup reminder on launch
+        checkBackupReminder()
+
+        // Keep AppWidget synced with current month spending
+        viewModelScope.launch {
+            currentOutflow.collect { outflow ->
+                com.example.widget.QuickExpenseWidgetProvider.updateSpending(
+                    application,
+                    outflow,
+                    activeCountryConfig.value.currencySymbol
+                )
+            }
+        }
+
         // Collect and check for upcoming recurring transaction warnings (3-day window)
         viewModelScope.launch {
             repository.allRecurring.collect { recurringList ->
@@ -1256,6 +1279,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
             result.fold(
                 onSuccess = { metadata ->
+                    prefs.edit()
+                        .putLong("last_manual_backup_timestamp", System.currentTimeMillis())
+                        .putBoolean("backup_reminder_prompted", false)
+                        .apply()
                     val msg = "Encrypted backup saved: ${metadata.fileName} (${metadata.sizeBytes / 1024} KB)"
                     postNotification(msg)
                     onResult(true, metadata.filePath)
@@ -1290,6 +1317,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return com.example.data.database.DatabaseEncryptionBackupManager.listBackups(getApplication())
     }
 
+    fun addCustomCategory(name: String, iconName: String = "label", isIncome: Boolean = false, subcategories: String = "") {
+        if (name.isBlank()) return
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val cat = CategoryEntity(
+                name = name.trim(),
+                iconName = iconName.ifBlank { "label" },
+                isIncome = isIncome,
+                subcategories = subcategories.trim()
+            )
+            repository.insertCategory(cat)
+            postNotification("Custom category '${name.trim()}' created successfully!")
+        }
+    }
+
     // Budgets for the active month
     val activeBudgets: StateFlow<List<BudgetEntity>> = selectedMonth
         .flatMapLatest { month -> repository.getBudgetsForMonth(month) }
@@ -1299,7 +1340,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val notifiedAlertKeys = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
     val budgetAlerts: StateFlow<List<com.example.data.service.BudgetNotificationService.BudgetAlert>> = combine(activeBudgets, categories) { buds, cats ->
-        val alerts = com.example.data.service.BudgetNotificationService.checkBudgets(buds, cats)
+        val alerts = com.example.data.service.BudgetNotificationService.checkBudgets(getApplication(), buds, cats)
         alerts.forEach { alert ->
             val key = "${alert.categoryId}_${alert.isExceeded}"
             if (!notifiedAlertKeys.contains(key)) {

@@ -64,14 +64,58 @@ fun TransactionScreen(
     var selectedCurrencyFilter by remember { mutableStateOf<String?>(null) }
     var customStartDate by remember { mutableStateOf("") }
     var customEndDate by remember { mutableStateOf("") }
-    
-    // date limit ranges (offsets in millis)
-    var dateRangePreset by remember { mutableStateOf("ALL") } // ALL, 7DAYS, 30DAYS
-    val resolvedStartDate = remember(dateRangePreset) {
+    var showDateRangePickerBottomSheet by remember { mutableStateOf(false) }
+
+    // date limit ranges (offsets in millis and calendar bounds)
+    var dateRangePreset by remember { mutableStateOf("ALL") } // ALL, THIS_WEEK, LAST_WEEK, THIS_MONTH, LAST_MONTH, 30DAYS, 90DAYS, CUSTOM
+    val resolvedDateBounds = remember(dateRangePreset) {
+        val cal = Calendar.getInstance()
         when (dateRangePreset) {
-            "7DAYS" -> System.currentTimeMillis() - (7L * 24 * 3600 * 1000)
-            "30DAYS" -> System.currentTimeMillis() - (30L * 24 * 3600 * 1000)
-            else -> null
+            "THIS_WEEK" -> {
+                cal.set(Calendar.DAY_OF_WEEK, cal.firstDayOfWeek)
+                cal.set(Calendar.HOUR_OF_DAY, 0)
+                cal.set(Calendar.MINUTE, 0)
+                cal.set(Calendar.SECOND, 0)
+                cal.set(Calendar.MILLISECOND, 0)
+                Pair(cal.timeInMillis, System.currentTimeMillis())
+            }
+            "LAST_WEEK" -> {
+                cal.set(Calendar.DAY_OF_WEEK, cal.firstDayOfWeek)
+                cal.set(Calendar.HOUR_OF_DAY, 0)
+                cal.set(Calendar.MINUTE, 0)
+                cal.set(Calendar.SECOND, 0)
+                cal.set(Calendar.MILLISECOND, 0)
+                val endLastWeek = cal.timeInMillis - 1
+                cal.add(Calendar.WEEK_OF_YEAR, -1)
+                val startLastWeek = cal.timeInMillis
+                Pair(startLastWeek, endLastWeek)
+            }
+            "THIS_MONTH" -> {
+                cal.set(Calendar.DAY_OF_MONTH, 1)
+                cal.set(Calendar.HOUR_OF_DAY, 0)
+                cal.set(Calendar.MINUTE, 0)
+                cal.set(Calendar.SECOND, 0)
+                cal.set(Calendar.MILLISECOND, 0)
+                Pair(cal.timeInMillis, System.currentTimeMillis())
+            }
+            "LAST_MONTH" -> {
+                cal.set(Calendar.DAY_OF_MONTH, 1)
+                cal.set(Calendar.HOUR_OF_DAY, 0)
+                cal.set(Calendar.MINUTE, 0)
+                cal.set(Calendar.SECOND, 0)
+                cal.set(Calendar.MILLISECOND, 0)
+                val endLastMonth = cal.timeInMillis - 1
+                cal.add(Calendar.MONTH, -1)
+                val startLastMonth = cal.timeInMillis
+                Pair(startLastMonth, endLastMonth)
+            }
+            "30DAYS" -> {
+                Pair(System.currentTimeMillis() - (30L * 24 * 3600 * 1000), System.currentTimeMillis())
+            }
+            "90DAYS" -> {
+                Pair(System.currentTimeMillis() - (90L * 24 * 3600 * 1000), System.currentTimeMillis())
+            }
+            else -> Pair(null, null)
         }
     }
 
@@ -89,7 +133,7 @@ fun TransactionScreen(
     // Compute the robust offline in-memory filtered transactions
     val displayedTransactions = remember(
         transactions, searchQuery, selectedCategoryIdFilter, minAmountQuery, maxAmountQuery, 
-        resolvedStartDate, categories, selectedCurrencyFilter, customStartDate, customEndDate, config,
+        resolvedDateBounds, categories, selectedCurrencyFilter, customStartDate, customEndDate, config,
         selectedTagFilter
     ) {
         transactions.filter { tx ->
@@ -119,7 +163,11 @@ fun TransactionScreen(
             val matchesMax = maxAmt == null || tx.amount <= maxAmt
 
             // Date preset matching
-            val matchesDate = resolvedStartDate == null || tx.timestamp >= resolvedStartDate
+            val matchesDate = if (resolvedDateBounds.first != null && resolvedDateBounds.second != null) {
+                tx.timestamp >= resolvedDateBounds.first!! && tx.timestamp <= resolvedDateBounds.second!!
+            } else if (resolvedDateBounds.first != null) {
+                tx.timestamp >= resolvedDateBounds.first!!
+            } else true
 
             // Custom exact date range matching YYYY-MM-DD
             val matchesCustomDate = try {
@@ -309,6 +357,24 @@ fun TransactionScreen(
                                 .height(48.dp)
                                 .testTag("search_input_field")
                         )
+
+                        IconButton(
+                            onClick = { showDateRangePickerBottomSheet = true },
+                            modifier = Modifier
+                                .size(44.dp)
+                                .background(
+                                    color = if (dateRangePreset != "ALL") MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+                                    shape = RoundedCornerShape(8.dp)
+                                )
+                                .testTag("open_date_range_picker_btn")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CalendarMonth,
+                                contentDescription = "Date Range Filter Bottom Sheet",
+                                tint = if (dateRangePreset != "ALL") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
 
                         IconButton(
                             onClick = { showAdvancedFilters = !showAdvancedFilters },
@@ -904,6 +970,131 @@ fun TransactionScreen(
                 viewModel = viewModel,
                 onDismissRequest = { showImportDialog = false }
             )
+        }
+
+        if (showDateRangePickerBottomSheet) {
+            DateRangePickerBottomSheet(
+                currentPreset = dateRangePreset,
+                customStart = customStartDate,
+                customEnd = customEndDate,
+                onSelectPreset = { preset ->
+                    dateRangePreset = preset
+                    if (preset != "CUSTOM") {
+                        customStartDate = ""
+                        customEndDate = ""
+                    }
+                },
+                onCustomRangeChanged = { start, end ->
+                    customStartDate = start
+                    customEndDate = end
+                },
+                onDismiss = { showDateRangePickerBottomSheet = false }
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DateRangePickerBottomSheet(
+    currentPreset: String,
+    customStart: String,
+    customEnd: String,
+    onSelectPreset: (String) -> Unit,
+    onCustomRangeChanged: (String, String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState()
+    var startInput by remember { mutableStateOf(customStart) }
+    var endInput by remember { mutableStateOf(customEnd) }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        modifier = Modifier.testTag("date_range_picker_bottom_sheet")
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = "FILTER TRANSACTIONS BY DATE RANGE",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+
+            val presets = listOf(
+                "ALL" to "All Time",
+                "THIS_WEEK" to "This Week",
+                "LAST_WEEK" to "Last Week",
+                "THIS_MONTH" to "This Month",
+                "LAST_MONTH" to "Last Month",
+                "30DAYS" to "Last 30 Days",
+                "90DAYS" to "Last 90 Days",
+                "CUSTOM" to "Custom Date Range"
+            )
+
+            presets.chunked(2).forEach { rowItems ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    rowItems.forEach { (key, label) ->
+                        FilterChip(
+                            selected = currentPreset == key,
+                            onClick = {
+                                onSelectPreset(key)
+                                if (key != "CUSTOM") {
+                                    onDismiss()
+                                }
+                            },
+                            label = { Text(label, fontSize = 12.sp) },
+                            modifier = Modifier.weight(1f).testTag("date_preset_$key")
+                        )
+                    }
+                }
+            }
+
+            if (currentPreset == "CUSTOM") {
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                Text("Custom Date Range (YYYY-MM-DD)", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = startInput,
+                        onValueChange = {
+                            startInput = it
+                            onCustomRangeChanged(startInput, endInput)
+                        },
+                        label = { Text("Start Date") },
+                        placeholder = { Text("2026-01-01") },
+                        modifier = Modifier.weight(1f).testTag("custom_start_date_input")
+                    )
+                    OutlinedTextField(
+                        value = endInput,
+                        onValueChange = {
+                            endInput = it
+                            onCustomRangeChanged(startInput, endInput)
+                        },
+                        label = { Text("End Date") },
+                        placeholder = { Text("2026-12-31") },
+                        modifier = Modifier.weight(1f).testTag("custom_end_date_input")
+                    )
+                }
+
+                Button(
+                    onClick = onDismiss,
+                    modifier = Modifier.fillMaxWidth().testTag("apply_custom_date_btn")
+                ) {
+                    Text("Apply Date Range")
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 }

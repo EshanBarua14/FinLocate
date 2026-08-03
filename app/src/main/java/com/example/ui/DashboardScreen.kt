@@ -1,5 +1,8 @@
 package com.example.ui
 
+import android.graphics.Bitmap
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import android.widget.Toast
 import kotlinx.coroutines.launch
 import android.webkit.WebView
@@ -3593,12 +3596,88 @@ fun QuickAddExpenseDialog(
     var selectedCurrency by remember { mutableStateOf(config.currency) }
     var notesText by remember { mutableStateOf("") }
     var isTaxDeductible by remember { mutableStateOf(false) }
+    var selectedDateText by remember { mutableStateOf(java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())) }
+    var selectedTaxLocality by remember { mutableStateOf("Federal / State Standard Tax") }
 
     var expandedCat by remember { mutableStateOf(false) }
     var expandedAcc by remember { mutableStateOf(false) }
     var expandedCurr by remember { mutableStateOf(false) }
+    var expandedLocality by remember { mutableStateOf(false) }
+    var isScanningReceipt by remember { mutableStateOf(false) }
+
+    // Foreign Transaction Calculator state
+    var showForeignCalc by remember { mutableStateOf(false) }
+    var foreignAmountText by remember { mutableStateOf("") }
+    var selectedForeignCurrency by remember { mutableStateOf("EUR") }
+    var expandedForeignCurr by remember { mutableStateOf(false) }
+    val exchangeRatesMap by viewModel.exchangeRates.collectAsState()
+
+    val foreignRatesMap = remember(exchangeRatesMap) {
+        val map = mutableMapOf("USD" to 1.0, "EUR" to 0.92, "GBP" to 0.78, "JPY" to 155.0, "CAD" to 1.36, "AUD" to 1.52, "INR" to 83.5, "SGD" to 1.35, "BDT" to 117.0)
+        map.putAll(exchangeRatesMap)
+        map
+    }
+
+    val foreignConvertedAmount = remember(foreignAmountText, selectedForeignCurrency, selectedCurrency, foreignRatesMap) {
+        val amt = foreignAmountText.toDoubleOrNull() ?: 0.0
+        val foreignRateToUsd = foreignRatesMap[selectedForeignCurrency] ?: 1.0
+        val targetRateToUsd = foreignRatesMap[selectedCurrency] ?: 1.0
+        if (foreignRateToUsd > 0) {
+            (amt / foreignRateToUsd) * targetRateToUsd
+        } else {
+            0.0
+        }
+    }
 
     val currencyList = listOf("USD", "EUR", "GBP", "JPY", "CAD", "AUD", "INR", "SGD", "BDT")
+    val taxLocalities = listOf("Federal / State Standard Tax", "Federal Jurisdiction", "State & Municipal Tax", "Standard VAT / Sales Tax", "Zero-Rated Foreign Jurisdiction", "Exempt Locality")
+
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicturePreview()
+    ) { bitmap: Bitmap? ->
+        if (bitmap != null) {
+            isScanningReceipt = true
+            coroutineScope.launch {
+                try {
+                    val categoriesJson = categories.joinToString(prefix = "[", postfix = "]") { "{\"id\": ${it.id}, \"name\": \"${it.name.replace("\"", "\\\"")}\"}" }
+                    val responseJson = com.example.data.api.GeminiApiClient.analyzeReceiptWithCategory(bitmap, categoriesJson, "[]")
+                    if (responseJson.isNotEmpty() && !responseJson.startsWith("Exception:")) {
+                        val cleanJson = responseJson.trim().replace("```json", "").replace("```", "").trim()
+                        val moshi = com.squareup.moshi.Moshi.Builder().build()
+                        val adapter = moshi.adapter(Map::class.java)
+                        val parsedMap = adapter.fromJson(cleanJson)
+                        if (parsedMap != null) {
+                            parsedMap["merchant"]?.toString()?.let { if (it.isNotEmpty()) merchantText = it }
+                            parsedMap["amount"]?.toString()?.let { if (it.isNotEmpty()) amountText = it }
+                            parsedMap["date"]?.toString()?.let { if (it.isNotEmpty()) selectedDateText = it }
+                            (parsedMap["categoryId"]?.toString()?.toDoubleOrNull()?.toLong())?.let { catId ->
+                                if (catId != 0L && expenseCats.any { it.id == catId }) selectedCategoryId = catId
+                            }
+                            selectedTaxLocality = "Federal / State Standard Tax"
+                        }
+                    }
+                    android.widget.Toast.makeText(context, "Receipt Scanned! Modal fields auto-filled.", android.widget.Toast.LENGTH_SHORT).show()
+                } catch (e: Exception) {
+                    android.widget.Toast.makeText(context, "OCR scanning error: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                } finally {
+                    isScanningReceipt = false
+                }
+            }
+        }
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            cameraLauncher.launch(null)
+        } else {
+            android.widget.Toast.makeText(context, "Camera permission needed to scan receipt.", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -3619,6 +3698,25 @@ fun QuickAddExpenseDialog(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
+                // OCR Receipt Scanner Button
+                OutlinedButton(
+                    onClick = {
+                        permissionLauncher.launch(android.Manifest.permission.CAMERA)
+                    },
+                    modifier = Modifier.fillMaxWidth().testTag("quick_add_ocr_scan_btn"),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary)
+                ) {
+                    if (isScanningReceipt) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Analyzing Receipt Image with OCR...", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    } else {
+                        Icon(imageVector = Icons.Default.CameraAlt, contentDescription = "Camera OCR Scanner", modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("📷 Camera Scan Receipt (OCR Auto-Fill)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+
                 // Amount row & Currency Selector
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -3657,6 +3755,135 @@ fun QuickAddExpenseDialog(
                                     }
                                 )
                             }
+                        }
+                    }
+                }
+
+                // Foreign Transaction Calculator Toggle & Card
+                OutlinedButton(
+                    onClick = { showForeignCalc = !showForeignCalc },
+                    modifier = Modifier.fillMaxWidth().testTag("toggle_foreign_calc_btn")
+                ) {
+                    Icon(imageVector = Icons.Default.Public, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        if (showForeignCalc) "Hide Foreign Transaction Calculator" else "✈️ Foreign Transaction Calculator (Daily WorkManager Rates)",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                if (showForeignCalc) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("foreign_calc_card"),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f))
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text("Foreign Currency Converter", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                            
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                OutlinedTextField(
+                                    value = foreignAmountText,
+                                    onValueChange = { foreignAmountText = it },
+                                    label = { Text("Foreign Amount") },
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1.5f).testTag("foreign_amount_input")
+                                )
+
+                                Box(modifier = Modifier.weight(1f)) {
+                                    OutlinedButton(
+                                        onClick = { expandedForeignCurr = true },
+                                        modifier = Modifier.fillMaxWidth().height(56.dp).testTag("foreign_currency_selector")
+                                    ) {
+                                        Text(selectedForeignCurrency, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                    DropdownMenu(
+                                        expanded = expandedForeignCurr,
+                                        onDismissRequest = { expandedForeignCurr = false }
+                                    ) {
+                                        currencyList.forEach { curr ->
+                                            DropdownMenuItem(
+                                                text = { Text(curr, fontWeight = FontWeight.Bold) },
+                                                onClick = {
+                                                    selectedForeignCurrency = curr
+                                                    expandedForeignCurr = false
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (foreignConvertedAmount > 0) {
+                                val convertedStr = String.format(java.util.Locale.US, "%.2f", foreignConvertedAmount)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "= $selectedCurrency $convertedStr",
+                                        fontWeight = FontWeight.Black,
+                                        fontSize = 13.sp,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Button(
+                                        onClick = {
+                                            amountText = convertedStr
+                                            notesText = if (notesText.isEmpty()) "Paid $selectedForeignCurrency $foreignAmountText" else "$notesText (Paid $selectedForeignCurrency $foreignAmountText)"
+                                        },
+                                        modifier = Modifier.testTag("apply_foreign_converted_btn")
+                                    ) {
+                                        Text("Apply to Amount", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                OutlinedTextField(
+                    value = selectedDateText,
+                    onValueChange = { selectedDateText = it },
+                    label = { Text("Transaction Date (YYYY-MM-DD)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().testTag("quick_add_date_input")
+                )
+
+                // Tax Locality Dropdown Selector
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    Column {
+                        Text("Tax Locality", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                        OutlinedButton(
+                            onClick = { expandedLocality = true },
+                            modifier = Modifier.fillMaxWidth().testTag("quick_add_tax_locality_selector")
+                        ) {
+                            Text(selectedTaxLocality, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                    DropdownMenu(
+                        expanded = expandedLocality,
+                        onDismissRequest = { expandedLocality = false },
+                        modifier = Modifier.fillMaxWidth(0.8f)
+                    ) {
+                        taxLocalities.forEach { locality ->
+                            DropdownMenuItem(
+                                text = { Text(locality) },
+                                onClick = {
+                                    selectedTaxLocality = locality
+                                    expandedLocality = false
+                                }
+                            )
                         }
                     }
                 }
@@ -3771,8 +3998,10 @@ fun QuickAddExpenseDialog(
                     val customCategoryTax = viewModel.categoryTaxRates.value[selectedCategoryId] ?: realTimeVat
                     val taxRateToUse = if (isTaxDeductible) customCategoryTax else 0.0
 
-                    // Include original currency in notes for CSV analysis audit trails
-                    val notesToUse = notesText.ifEmpty { "Form logged ($selectedCurrency $amt)" }
+                    // Include original currency, date, and tax locality in notes for CSV analysis audit trails
+                    val dateNote = if (selectedDateText.isNotEmpty()) "Date: $selectedDateText" else ""
+                    val localityNote = "Locality: $selectedTaxLocality"
+                    val notesToUse = listOfNotNull(notesText.ifEmpty { null }, "Logged ($selectedCurrency $amt)", dateNote, localityNote).joinToString(" | ")
 
                     viewModel.addTransaction(
                         amount = baseAmount,

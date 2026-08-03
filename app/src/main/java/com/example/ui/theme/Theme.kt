@@ -11,6 +11,9 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 
@@ -40,9 +43,37 @@ private val LightColorScheme = lightColorScheme(
     error = ExpenseRose
 )
 
+object ThemeManager {
+    var isDarkThemeState by androidx.compose.runtime.mutableStateOf(true)
+    var isUserOverride by androidx.compose.runtime.mutableStateOf(false)
+
+    fun toggleTheme() {
+        isUserOverride = true
+        isDarkThemeState = !isDarkThemeState
+    }
+
+    fun setDarkMode(isDark: Boolean, isManual: Boolean = true) {
+        if (isManual) {
+            isUserOverride = true
+        }
+        isDarkThemeState = isDark
+    }
+
+    fun resetToSystemTheme(isSystemDark: Boolean) {
+        isUserOverride = false
+        isDarkThemeState = isSystemDark
+    }
+
+    fun updateSystemThemePreference(isSystemDark: Boolean) {
+        if (!isUserOverride) {
+            isDarkThemeState = isSystemDark
+        }
+    }
+}
+
 @Composable
 fun MyApplicationTheme(
-  darkTheme: Boolean = isSystemInDarkTheme(),
+  darkTheme: Boolean = ThemeManager.isDarkThemeState,
   // Dynamic color is available on Android 12+
   dynamicColor: Boolean = true,
   customPrimaryHex: String? = null,

@@ -11,6 +11,9 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -34,7 +37,8 @@ fun BudgetCategoryProgressBar(
     formatter: ((Double) -> String)? = null,
     isAdaptive: Boolean = false,
     modifier: Modifier = Modifier,
-    onEdit: (() -> Unit)? = null
+    onEdit: (() -> Unit)? = null,
+    onLimitChanged: ((Double) -> Unit)? = null
 ) {
     val ratio = if (limit > 0) (spent / limit).toFloat() else 0f
     val clampedRatio = ratio.coerceAtMost(1.0f)
@@ -47,14 +51,17 @@ fun BudgetCategoryProgressBar(
     }
 
     val spentStr = formatter?.invoke(spent) ?: "$currencySymbol${String.format("%.2f", spent)}"
-    val limitStr = formatter?.invoke(limit) ?: "$currencySymbol${String.format("%.2f", limit)}"
-    val remaining = limit - spent
+    var currentLimit by remember(limit) { mutableStateOf(limit.toFloat()) }
+    val effectiveLimit = currentLimit.toDouble()
+    val limitStr = formatter?.invoke(effectiveLimit) ?: "$currencySymbol${String.format("%.2f", effectiveLimit)}"
+    val remaining = effectiveLimit - spent
     val remainingStr = if (remaining >= 0) {
         "Remaining: ${formatter?.invoke(remaining) ?: "$currencySymbol${String.format("%.2f", remaining)}"}"
     } else {
         "Over by: ${formatter?.invoke(-remaining) ?: "$currencySymbol${String.format("%.2f", -remaining)}"}"
     }
-    val percentageInt = (ratio * 100).toInt()
+    val effectiveRatio = if (effectiveLimit > 0) (spent / effectiveLimit).toFloat() else 0f
+    val percentageInt = (effectiveRatio * 100).toInt()
 
     val a11yDescription = "Budget category $categoryName: $spentStr spent of $limitStr monthly limit ($percentageInt% consumed). Status: $statusText. $remainingStr."
 
@@ -201,6 +208,42 @@ fun BudgetCategoryProgressBar(
                         fontSize = 13.sp,
                         fontWeight = FontWeight.ExtraBold,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                    )
+                }
+            }
+
+            if (onLimitChanged != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "DYNAMIC LIMIT ADJUSTER",
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = limitStr,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    val maxSliderValue = maxOf(20000f, (spent * 2.5).toFloat(), (limit * 2.0).toFloat())
+                    Slider(
+                        value = currentLimit,
+                        onValueChange = { newValue ->
+                            currentLimit = newValue
+                        },
+                        onValueChangeFinished = {
+                            onLimitChanged(currentLimit.toDouble())
+                        },
+                        valueRange = 0f..maxSliderValue,
+                        modifier = Modifier.fillMaxWidth().testTag("budget_slider_$categoryName")
                     )
                 }
             }

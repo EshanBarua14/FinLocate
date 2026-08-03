@@ -67,15 +67,32 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge() // mandatory modern full-bleed edge-to-edge support
 
-        // Schedule background workers for recurring expenses, budget checks, and daily database archival
+        // Schedule background workers for recurring expenses, budget checks, exchange rates, and daily database archival
         try {
             com.example.data.worker.RecurringExpenseWorker.scheduleWorker(this)
             com.example.data.worker.BudgetCheckWorker.scheduleWorker(this)
             com.example.data.worker.DatabaseArchiveWorker.schedulePeriodic(this)
+            com.example.data.worker.ExchangeRateWorker.schedulePeriodic(this)
+
+            // Dynamic App Shortcut for long-press main app icon
+            val shortcut = androidx.core.content.pm.ShortcutInfoCompat.Builder(this, "quick_add_expense")
+                .setShortLabel("Add Expense")
+                .setLongLabel("Quick Add Expense")
+                .setIcon(androidx.core.graphics.drawable.IconCompat.createWithResource(this, R.drawable.ic_launcher_foreground))
+                .setIntent(android.content.Intent(this, MainActivity::class.java).apply {
+                    action = "com.example.ACTION_QUICK_ADD_EXPENSE"
+                })
+                .build()
+            androidx.core.content.pm.ShortcutManagerCompat.pushDynamicShortcut(this, shortcut)
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -84,9 +101,13 @@ class MainActivity : FragmentActivity() {
             val isDarkTheme by viewModel.isDarkTheme.collectAsState()
             val brandColorHex by viewModel.brandColorHex.collectAsState()
             val systemInDark = androidx.compose.foundation.isSystemInDarkTheme()
-            val effectiveDark = isDarkTheme || systemInDark
+
+            androidx.compose.runtime.LaunchedEffect(systemInDark) {
+                com.example.ui.theme.ThemeManager.updateSystemThemePreference(systemInDark)
+            }
+
             MyApplicationTheme(
-                darkTheme = effectiveDark,
+                darkTheme = com.example.ui.theme.ThemeManager.isDarkThemeState,
                 dynamicColor = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S,
                 customPrimaryHex = brandColorHex
             ) {
@@ -298,6 +319,15 @@ class MainActivity : FragmentActivity() {
                                 }
 
                                 Spacer(modifier = Modifier.height(8.dp))
+
+                                TextButton(
+                                    onClick = {
+                                        errorMessage = "Biometrics bypassed. Enter your 4-digit PIN code."
+                                    },
+                                    modifier = Modifier.testTag("pin_code_fallback_btn")
+                                ) {
+                                    Text("🔒 Biometrics Unavailable? Enter Security PIN", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
                             }
                         }
                     }
@@ -388,6 +418,7 @@ class MainActivity : FragmentActivity() {
                                     NavigationTabItem("Dashboard", Icons.Default.Dashboard, "tab_dashboard"),
                                     NavigationTabItem("Ledger", Icons.AutoMirrored.Filled.ListAlt, "tab_ledger"),
                                     NavigationTabItem("Budgets", Icons.Default.PieChart, "tab_budgets"),
+                                    NavigationTabItem("Trends", Icons.Default.ShowChart, "tab_trends"),
                                     NavigationTabItem("Tax Board", Icons.AutoMirrored.Filled.ReceiptLong, "tab_tax"),
                                     NavigationTabItem("Regions", Icons.Default.Language, "tab_countries"),
                                     NavigationTabItem("AI Assist", Icons.Default.AutoAwesome, "tab_ai")
@@ -543,13 +574,16 @@ class MainActivity : FragmentActivity() {
                                     2 -> BudgetScreen(
                                         viewModel = viewModel
                                     )
-                                    3 -> TaxScreen(
+                                    3 -> SavingsTrendScreen(
                                         viewModel = viewModel
                                     )
-                                    4 -> CountryScreen(
+                                    4 -> TaxScreen(
                                         viewModel = viewModel
                                     )
-                                    5 -> AiInsightsScreen(
+                                    5 -> CountryScreen(
+                                        viewModel = viewModel
+                                    )
+                                    6 -> AiInsightsScreen(
                                         viewModel = viewModel
                                     )
                                 }
