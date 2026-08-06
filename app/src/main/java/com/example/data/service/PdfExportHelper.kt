@@ -150,4 +150,121 @@ object PdfExportHelper {
         
         return pdfFile
     }
+
+    /**
+     * Generates a PDF tax summary report for the current financial year,
+     * categorized by user-defined tax tags/categories.
+     */
+    fun generateTaxSummaryPdfReport(
+        context: Context,
+        transactions: List<TransactionEntity>,
+        categories: List<CategoryEntity>,
+        fiscalYear: String,
+        config: CountryConfig
+    ): File {
+        val pdfDocument = PdfDocument()
+        val pageInfo = PdfDocument.PageInfo.Builder(595, 842, 1).create()
+        val page = pdfDocument.startPage(pageInfo)
+        val canvas: Canvas = page.canvas
+
+        val brandPaint = Paint().apply {
+            color = Color.rgb(16, 185, 129) // Emerald primary
+            isAntiAlias = true
+        }
+        val titlePaint = Paint().apply {
+            color = Color.BLACK
+            textSize = 15f
+            isFakeBoldText = true
+            isAntiAlias = true
+        }
+        val headerPaint = Paint().apply {
+            color = Color.rgb(51, 65, 85)
+            textSize = 10f
+            isFakeBoldText = true
+            isAntiAlias = true
+        }
+        val textPaint = Paint().apply {
+            color = Color.BLACK
+            textSize = 9f
+            isAntiAlias = true
+        }
+        val linePaint = Paint().apply {
+            color = Color.rgb(226, 232, 240)
+            strokeWidth = 0.8f
+            isAntiAlias = true
+        }
+
+        var y = 45f
+
+        // Brand banner
+        canvas.drawRect(40f, y, 70f, y + 25f, brandPaint)
+        canvas.drawText("ANNUAL FINANCIAL TAX SUMMARY REPORT", 80f, y + 12f, titlePaint)
+        canvas.drawText("Tax year compliance overview & categorized deductibles", 80f, y + 23f, textPaint.apply { color = Color.GRAY; textSize = 8f })
+
+        y += 45f
+
+        val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
+        canvas.drawText("Financial Year: $fiscalYear", 40f, y, textPaint.apply { color = Color.BLACK; textSize = 9.5f; isFakeBoldText = true })
+        y += 14f
+        canvas.drawText("Generated on: ${sdf.format(Date())}", 40f, y, textPaint.apply { isFakeBoldText = false })
+        y += 14f
+        canvas.drawText("Currency Base: ${config.currency} (${config.currencySymbol})", 40f, y, textPaint)
+
+        y += 20f
+
+        // Group transactions by tax tag or category
+        val taggedMap = transactions.groupBy { tx ->
+            tx.tags.ifBlank {
+                categories.find { cat -> cat.id == tx.categoryId }?.name ?: "General Expenses"
+            }
+        }
+
+        val totalDeductions = transactions.sumOf { it.amount }
+
+        canvas.drawRect(40f, y, 555f, y + 1.5f, Paint().apply { color = Color.rgb(30, 41, 59) })
+        y += 15f
+
+        // Summary Header Cards inside PDF
+        canvas.drawText("TOTAL TAX DEDUCTIBLE TRANSACTIONS: ${transactions.size}", 40f, y, headerPaint)
+        canvas.drawText("CUMULATIVE DEDUCTIBLE: ${CurrencyFormatterHelper.format(totalDeductions, config)}", 300f, y, headerPaint.apply { color = Color.rgb(16, 185, 129) })
+
+        y += 20f
+        canvas.drawRect(40f, y, 555f, y + 1f, linePaint)
+        y += 15f
+
+        // Table Column Headers
+        canvas.drawText("TAX TAG / CATEGORY", 45f, y, headerPaint.apply { color = Color.rgb(71, 85, 105) })
+        canvas.drawText("ITEMS", 280f, y, headerPaint)
+        canvas.drawText("DEDUCTIBLE TOTAL", 420f, y, headerPaint)
+        y += 12f
+        canvas.drawRect(40f, y - 4f, 555f, y - 3f, linePaint)
+        y += 12f
+
+        taggedMap.forEach { (tag, txList) ->
+            val tagTotal = txList.sumOf { it.amount }
+            val formattedAmt = CurrencyFormatterHelper.format(tagTotal, config)
+
+            canvas.drawText(tag.uppercase(Locale.US), 45f, y, textPaint.apply { color = Color.BLACK; isFakeBoldText = true })
+            canvas.drawText("${txList.size} receipts", 280f, y, textPaint.apply { isFakeBoldText = false })
+            canvas.drawText(formattedAmt, 420f, y, textPaint.apply { color = Color.rgb(16, 185, 129); isFakeBoldText = true })
+
+            y += 18f
+            canvas.drawLine(40f, y - 10f, 555f, y - 10f, linePaint)
+
+            if (y > 780f) return@forEach
+        }
+
+        y += 10f
+        canvas.drawLine(40f, y, 555f, y, Paint().apply { color = Color.rgb(30, 41, 59); strokeWidth = 1f })
+        y += 18f
+        canvas.drawText("Verified tax report snapshot. Ready for tax authority filing & accountant review.", 40f, y, textPaint.apply { color = Color.GRAY; textSize = 7.5f; isFakeBoldText = false })
+
+        pdfDocument.finishPage(page)
+
+        val pdfFile = File(context.cacheDir, "tax_summary_report_$fiscalYear.pdf")
+        pdfDocument.writeTo(pdfFile.outputStream())
+        pdfDocument.close()
+
+        return pdfFile
+    }
 }

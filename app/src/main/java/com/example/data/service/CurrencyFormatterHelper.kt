@@ -73,5 +73,27 @@ object CurrencyFormatterHelper {
         }
         return "$currencySymbol${numberFormat.format(amount)}"
     }
+
+    /**
+     * Returns country flag emoji for popular currency codes.
+     */
+    fun getCurrencyFlagEmoji(currencyCode: String): String {
+        return when (currencyCode.uppercase(Locale.US)) {
+            "USD" -> "🇺🇸"
+            "EUR" -> "🇪🇺"
+            "GBP" -> "🇬🇧"
+            "JPY" -> "🇯🇵"
+            "CAD" -> "🇨🇦"
+            "AUD" -> "🇦🇺"
+            "INR" -> "🇮🇳"
+            "BDT" -> "🇧🇩"
+            "SGD" -> "🇸🇬"
+            "CNY" -> "🇨🇳"
+            "CHF" -> "🇨🇭"
+            "AED" -> "🇦🇪"
+            "SAR" -> "🇸🇦"
+            else -> "🌐"
+        }
+    }
 }
 

@@ -366,4 +366,15 @@ data class TransactionExchangeRateLogEntity(
     val timestamp: Long = System.currentTimeMillis()
 )
 
+data class BudgetPulseData(
+    val headline: String = "Calculating budget pulse...",
+    val subtext: String = "Analyzing spending velocity",
+    val pulseTag: String = "STEADY PACE",
+    val percentageChange: Double = 0.0,
+    val isFaster: Boolean = false,
+    val dailySpendCurrent: Double = 0.0,
+    val dailySpendPrevious: Double = 0.0,
+    val projectedTotalSpent: Double = 0.0
+)
+
 

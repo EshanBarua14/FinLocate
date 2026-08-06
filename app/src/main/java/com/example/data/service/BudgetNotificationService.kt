@@ -107,11 +107,53 @@ object BudgetNotificationService {
         budgets: List<BudgetEntity>,
         categories: List<CategoryEntity>
     ): List<BudgetAlert> {
-        val alerts = checkBudgets(context, budgets, categories)
+        val alerts = checkBudgets(context, budgets, categories).toMutableList()
+        val predictiveAlerts = checkPredictiveVelocityOverrunsAndNotify(context, budgets, categories)
+        alerts.addAll(predictiveAlerts)
         alerts.forEach { alert ->
             triggerLocalSystemNotification(context, alert)
         }
         return alerts
+    }
+
+    /**
+     * Predicts potential end-of-month budget overruns based on current daily spending velocity.
+     */
+    fun checkPredictiveVelocityOverrunsAndNotify(
+        context: Context,
+        budgets: List<BudgetEntity>,
+        categories: List<CategoryEntity>
+    ): List<BudgetAlert> {
+        val cal = java.util.Calendar.getInstance()
+        val dayOfMonth = maxOf(1, cal.get(java.util.Calendar.DAY_OF_MONTH))
+        val daysInMonth = maxOf(28, cal.getActualMaximum(java.util.Calendar.DAY_OF_MONTH))
+
+        val predictiveAlerts = mutableListOf<BudgetAlert>()
+
+        budgets.forEach { budget ->
+            if (budget.amount <= 0.0) return@forEach
+            val categoryName = categories.find { it.id == budget.categoryId }?.name ?: "Category"
+            val dailyVelocity = budget.spent / dayOfMonth
+            val projectedSpent = dailyVelocity * daysInMonth
+
+            if (projectedSpent > budget.amount && dayOfMonth >= 2) {
+                val overrunAmount = projectedSpent - budget.amount
+                val overrunPct = (overrunAmount / budget.amount) * 100.0
+
+                val alert = BudgetAlert(
+                    categoryId = budget.categoryId,
+                    categoryName = categoryName,
+                    isExceeded = false,
+                    percentage = ((projectedSpent / budget.amount) * 100).toInt(),
+                    spent = budget.spent,
+                    limit = budget.amount,
+                    message = "📊 Predictive Overrun Warning ($categoryName): Current velocity is ${String.format(java.util.Locale.US, "%.1f", dailyVelocity)}/day. Projected month-end spend is ${String.format(java.util.Locale.US, "%.2f", projectedSpent)}, exceeding limit by ${String.format(java.util.Locale.US, "%.2f", overrunAmount)} (+${String.format(java.util.Locale.US, "%.0f%%", overrunPct)})."
+                )
+                predictiveAlerts.add(alert)
+                triggerLocalSystemNotification(context, alert)
+            }
+        }
+        return predictiveAlerts
     }
 
     /**

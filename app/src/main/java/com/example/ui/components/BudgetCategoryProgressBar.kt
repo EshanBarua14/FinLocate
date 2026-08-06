@@ -1,6 +1,8 @@
 package com.example.ui.components
 
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -18,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -40,9 +43,41 @@ fun BudgetCategoryProgressBar(
     onEdit: (() -> Unit)? = null,
     onLimitChanged: ((Double) -> Unit)? = null
 ) {
-    val ratio = if (limit > 0) (spent / limit).toFloat() else 0f
+    var isAdjusting by remember { mutableStateOf(false) }
+    var currentLimit by remember(limit) { mutableStateOf(limit.toFloat()) }
+
+    // Spring-based animated limit value for tactile feedback
+    val animatedLimit by animateFloatAsState(
+        targetValue = currentLimit,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        label = "spring_limit_anim"
+    )
+
+    // Spring-based scale bounce effect when adjusting slider
+    val springScale by animateFloatAsState(
+        targetValue = if (isAdjusting) 1.03f else 1.0f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMediumLow
+        ),
+        label = "spring_slider_scale"
+    )
+
+    val effectiveLimit = animatedLimit.toDouble()
+    val ratio = if (effectiveLimit > 0) (spent / effectiveLimit).toFloat() else 0f
     val clampedRatio = ratio.coerceAtMost(1.0f)
-    val animatedProgress by animateFloatAsState(targetValue = clampedRatio, label = "budget_progress")
+
+    val animatedProgress by animateFloatAsState(
+        targetValue = clampedRatio,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        label = "budget_progress"
+    )
 
     val (barColor, statusText, statusBg) = when {
         ratio >= 1.0f -> Triple(ExpenseRose, "OVER BUDGET", ExpenseRose.copy(alpha = 0.15f))
@@ -51,8 +86,6 @@ fun BudgetCategoryProgressBar(
     }
 
     val spentStr = formatter?.invoke(spent) ?: "$currencySymbol${String.format("%.2f", spent)}"
-    var currentLimit by remember(limit) { mutableStateOf(limit.toFloat()) }
-    val effectiveLimit = currentLimit.toDouble()
     val limitStr = formatter?.invoke(effectiveLimit) ?: "$currencySymbol${String.format("%.2f", effectiveLimit)}"
     val remaining = effectiveLimit - spent
     val remainingStr = if (remaining >= 0) {
@@ -60,8 +93,7 @@ fun BudgetCategoryProgressBar(
     } else {
         "Over by: ${formatter?.invoke(-remaining) ?: "$currencySymbol${String.format("%.2f", -remaining)}"}"
     }
-    val effectiveRatio = if (effectiveLimit > 0) (spent / effectiveLimit).toFloat() else 0f
-    val percentageInt = (effectiveRatio * 100).toInt()
+    val percentageInt = (ratio * 100).toInt()
 
     val a11yDescription = "Budget category $categoryName: $spentStr spent of $limitStr monthly limit ($percentageInt% consumed). Status: $statusText. $remainingStr."
 
@@ -71,6 +103,10 @@ fun BudgetCategoryProgressBar(
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         modifier = modifier
             .fillMaxWidth()
+            .graphicsLayer {
+                scaleX = springScale
+                scaleY = springScale
+            }
             .semantics { contentDescription = a11yDescription }
             .testTag("budget_progress_bar_$categoryName")
     ) {
@@ -221,7 +257,7 @@ fun BudgetCategoryProgressBar(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "DYNAMIC LIMIT ADJUSTER",
+                            text = "DYNAMIC SPRING LIMIT ADJUSTER",
                             fontSize = 8.sp,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary
@@ -233,14 +269,19 @@ fun BudgetCategoryProgressBar(
                             color = MaterialTheme.colorScheme.primary
                         )
                     }
+                    val view = androidx.compose.ui.platform.LocalView.current
                     val maxSliderValue = maxOf(20000f, (spent * 2.5).toFloat(), (limit * 2.0).toFloat())
                     Slider(
                         value = currentLimit,
                         onValueChange = { newValue ->
+                            isAdjusting = true
                             currentLimit = newValue
+                            try { view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK) } catch (e: Exception) {}
                         },
                         onValueChangeFinished = {
+                            isAdjusting = false
                             onLimitChanged(currentLimit.toDouble())
+                            try { view.performHapticFeedback(android.view.HapticFeedbackConstants.CONFIRM) } catch (e: Exception) {}
                         },
                         valueRange = 0f..maxSliderValue,
                         modifier = Modifier.fillMaxWidth().testTag("budget_slider_$categoryName")

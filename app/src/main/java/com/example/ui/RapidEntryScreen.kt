@@ -1509,6 +1509,44 @@ fun DetailedFormLayout(
 
         Spacer(modifier = Modifier.height(8.dp))
 
+        // ML & Pattern Tag Suggestions
+        val suggestedTags = remember(merchant) {
+            viewModel.suggestTagsForMerchant(merchant)
+        }
+        if (suggestedTags.isNotEmpty()) {
+            Column {
+                Text(
+                    text = "🤖 ML Pattern Tag Suggestions:",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(suggestedTags) { tag ->
+                        AssistChip(
+                            onClick = {
+                                if (tagsString.isBlank()) {
+                                    tagsString = tag
+                                } else if (!tagsString.contains(tag, ignoreCase = true)) {
+                                    tagsString = "$tagsString, $tag"
+                                }
+                            },
+                            label = { Text("#$tag", fontSize = 10.sp, fontWeight = FontWeight.SemiBold) },
+                            leadingIcon = {
+                                Icon(Icons.Default.Add, contentDescription = "Add tag", modifier = Modifier.size(12.dp))
+                            },
+                            modifier = Modifier.testTag("suggested_tag_$tag")
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+        }
+
         OutlinedTextField(
             value = tagsString,
             onValueChange = { tagsString = it },
@@ -1520,11 +1558,14 @@ fun DetailedFormLayout(
 
         Spacer(modifier = Modifier.height(16.dp))
 
+        val hapticView = androidx.compose.ui.platform.LocalView.current
+
         // ---- RECORD SUBMIT BUTTON ----
         Button(
             onClick = {
                 val amt = formAmount.toDoubleOrNull() ?: 0.0
                 if (amt > 0) {
+                    try { hapticView.performHapticFeedback(android.view.HapticFeedbackConstants.CONFIRM) } catch (e: Exception) {}
                     val baseAmount = viewModel.convertCurrency(amt, formCurrency, config.currency)
                     val realTimeVat = viewModel.realTimeTaxData.value?.standardVatRate ?: config.taxRateDefault
                     val customCategoryTax = viewModel.categoryTaxRates.value[selectedCategoryId] ?: realTimeVat

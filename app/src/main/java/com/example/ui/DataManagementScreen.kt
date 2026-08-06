@@ -505,6 +505,83 @@ fun DataManagementScreen(
 
         // Section 3: CSV Report Export
         item {
+            val diagnosticReport by viewModel.diagnosticReport.collectAsState()
+
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                modifier = Modifier.fillMaxWidth().testTag("db_diagnostic_card")
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.HealthAndSafety,
+                            contentDescription = "Database Diagnostic",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = "ROOM DB & CURRENCY CACHE DIAGNOSTIC",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+
+                    Text(
+                        text = "Validates Room database schema integrity against the local currency cache, fixing orphaned transaction links and corrupted records.",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Button(
+                        onClick = {
+                            viewModel.runDatabaseDiagnostic(context)
+                            viewModel.triggerPredictiveOverrunAudit(context)
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("run_db_diagnostic_btn"),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(imageVector = Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Run DB & Currency Cache Diagnostic")
+                    }
+
+                    if (diagnosticReport != null) {
+                        val report = diagnosticReport!!
+                        Surface(
+                            color = if (report.isHealthy) FintechGreen.copy(alpha = 0.12f) else MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(
+                                    text = if (report.isHealthy) "✅ Schema & Currency Cache Status: Healthy" else "🛠️ Schema Status: Repaired / Fixed",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (report.isHealthy) FintechGreen else MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                                Text("• Checked Transactions: ${report.totalTransactionsChecked}", fontSize = 10.sp)
+                                Text("• Orphaned Records Fixed: ${report.orphanedRecordsFixed}", fontSize = 10.sp)
+                                Text("• Corrupted Amounts Reset: ${report.corruptedAmountsFixed}", fontSize = 10.sp)
+                                Text("• Currency Cache: ${report.currencyCacheStatus}", fontSize = 10.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Section 4: CSV Report Export
+        item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 shape = RoundedCornerShape(16.dp),

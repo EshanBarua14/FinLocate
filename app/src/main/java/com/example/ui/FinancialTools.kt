@@ -2342,6 +2342,8 @@ fun FutureSavingsCalculatorComponent(
 
             Spacer(modifier = Modifier.height(12.dp))
 
+            val hapticView = androidx.compose.ui.platform.LocalView.current
+
             // Projection Years Slider
             Column {
                 Row(
@@ -2353,7 +2355,10 @@ fun FutureSavingsCalculatorComponent(
                 }
                 Slider(
                     value = projectionYears,
-                    onValueChange = { projectionYears = it },
+                    onValueChange = {
+                        projectionYears = it
+                        try { hapticView.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK) } catch (e: Exception) {}
+                    },
                     valueRange = 1f..40f,
                     steps = 39,
                     modifier = Modifier.testTag("inflation_calculator_years_slider")
@@ -2371,7 +2376,10 @@ fun FutureSavingsCalculatorComponent(
                 }
                 Slider(
                     value = nominalRate,
-                    onValueChange = { nominalRate = it },
+                    onValueChange = {
+                        nominalRate = it
+                        try { hapticView.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK) } catch (e: Exception) {}
+                    },
                     valueRange = 0f..20f,
                     steps = 40,
                     modifier = Modifier.testTag("inflation_calculator_rate_slider")
@@ -2393,7 +2401,10 @@ fun FutureSavingsCalculatorComponent(
                 }
                 Slider(
                     value = inflationRate,
-                    onValueChange = { inflationRate = it },
+                    onValueChange = {
+                        inflationRate = it
+                        try { hapticView.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK) } catch (e: Exception) {}
+                    },
                     valueRange = 0f..15f,
                     steps = 30,
                     modifier = Modifier.testTag("inflation_calculator_inflation_slider")

@@ -346,6 +346,7 @@ class MainActivity : FragmentActivity() {
 
                     LaunchedEffect(Unit) {
                         viewModel.checkRateUpdatePrompt()
+                        viewModel.checkForInitialJsonBackups(context)
                         if (intent?.action == "com.example.ACTION_QUICK_ADD_EXPENSE") {
                             showRapidEntrySheet = true
                         }
@@ -381,6 +382,40 @@ class MainActivity : FragmentActivity() {
                                 }
                             }
                         }
+                    }
+
+                    val pendingJsonBackupFile by viewModel.pendingJsonBackupFile.collectAsState()
+
+                    if (pendingJsonBackupFile != null) {
+                        val backupFile = pendingJsonBackupFile!!
+                        AlertDialog(
+                            onDismissRequest = { viewModel.dismissPendingJsonBackupPrompt(context) },
+                            icon = { Icon(Icons.Default.Backup, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                            title = { Text("Restore JSON Backup File?", fontWeight = FontWeight.Bold) },
+                            text = {
+                                Text("We detected a previously exported WealthFlow financial backup ('${backupFile.name}'). Would you like to restore your database records now?")
+                            },
+                            confirmButton = {
+                                Button(
+                                    onClick = {
+                                        viewModel.restorePendingJsonBackup(context) { msg ->
+                                            android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_LONG).show()
+                                        }
+                                    },
+                                    modifier = Modifier.testTag("restore_initial_json_backup_confirm_btn")
+                                ) {
+                                    Text("Restore Data Now")
+                                }
+                            },
+                            dismissButton = {
+                                TextButton(
+                                    onClick = { viewModel.dismissPendingJsonBackupPrompt(context) },
+                                    modifier = Modifier.testTag("restore_initial_json_backup_dismiss_btn")
+                                ) {
+                                    Text("Skip")
+                                }
+                            }
+                        )
                     }
 
                     Scaffold(

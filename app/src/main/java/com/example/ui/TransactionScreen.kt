@@ -607,10 +607,11 @@ fun TransactionScreen(
                                 val currencies = listOf("USD", "EUR", "GBP", "JPY", "CAD", "AUD", "INR", "SGD", "BDT")
                                 items(currencies) { curr ->
                                     val isSelected = selectedCurrencyFilter == curr
+                                    val flag = com.example.data.service.CurrencyFormatterHelper.getCurrencyFlagEmoji(curr)
                                     FilterChip(
                                         selected = isSelected,
                                         onClick = { selectedCurrencyFilter = curr },
-                                        label = { Text(curr, fontSize = 10.sp) },
+                                        label = { Text("$flag $curr", fontSize = 10.sp) },
                                         modifier = Modifier.testTag("chip_currency_$curr")
                                     )
                                 }
@@ -1621,6 +1622,16 @@ fun TransactionItemRow(
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    val curr = account?.currency ?: "USD"
+                    val flag = com.example.data.service.CurrencyFormatterHelper.getCurrencyFlagEmoji(curr)
+                    Box(
+                        modifier = Modifier
+                            .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 4.dp, vertical = 1.dp)
+                    ) {
+                        Text("$flag $curr", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                    }
+                    Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = transaction.merchant.ifEmpty { "Direct Ledger" },
                         fontSize = 11.sp,

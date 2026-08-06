@@ -93,6 +93,7 @@ fun DashboardScreen(
     val monthToMonthSpending by viewModel.monthToMonthSpending.collectAsState()
     val countryConfig by viewModel.activeCountryConfig.collectAsState()
     val budgetProjection by viewModel.budgetProjection.collectAsState()
+    val budgetPulse by viewModel.budgetPulse.collectAsState()
     val netWorthSummary by viewModel.netWorthSummary.collectAsState()
     val matchingRules by viewModel.matchingRules.collectAsState()
     val anomalies by viewModel.detectedAnomalies.collectAsState()
@@ -173,7 +174,7 @@ fun DashboardScreen(
                                 }
                             )
                             Text(
-                                text = if (useBaseCurrency) "USD ($)" else "LOCAL (${displayCurrency})",
+                                text = if (useBaseCurrency) "🇺🇸 USD ($)" else "${com.example.data.service.CurrencyFormatterHelper.getCurrencyFlagEmoji(displayCurrency)} ${displayCurrency}",
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = if (useBaseCurrency) {
@@ -431,6 +432,39 @@ fun DashboardScreen(
                             Icon(Icons.Default.ArrowUpward, contentDescription = null, modifier = Modifier.size(14.dp))
                             Spacer(modifier = Modifier.width(4.dp))
                             Text("Import CSV", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                viewModel.exportTransactionsToJson(dashboardContext) { msg ->
+                                    android.widget.Toast.makeText(dashboardContext, msg, android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                            modifier = Modifier.weight(1f).height(38.dp).testTag("hub_export_json_btn")
+                        ) {
+                            Icon(Icons.Default.Code, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Export JSON", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                viewModel.exportTransactionsToXml(dashboardContext) { msg ->
+                                    android.widget.Toast.makeText(dashboardContext, msg, android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                            modifier = Modifier.weight(1f).height(38.dp).testTag("hub_export_xml_btn")
+                        ) {
+                            Icon(Icons.Default.DataObject, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Export XML", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                     Spacer(modifier = Modifier.height(8.dp))
@@ -1409,6 +1443,93 @@ fun DashboardScreen(
                             }
                         }
                     }
+                }
+            }
+        }
+
+        // --- 1.45. BUDGET PULSE TREND INDICATOR ---
+        item {
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = if (budgetPulse.isFaster) {
+                        ExpenseRose.copy(alpha = 0.12f)
+                    } else {
+                        FintechGreen.copy(alpha = 0.12f)
+                    }
+                ),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(
+                    width = 1.dp,
+                    color = if (budgetPulse.isFaster) ExpenseRose.copy(alpha = 0.35f) else FintechGreen.copy(alpha = 0.35f)
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("budget_pulse_trend_card")
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .background(
+                                        color = if (budgetPulse.isFaster) ExpenseRose.copy(alpha = 0.2f) else FintechGreen.copy(alpha = 0.2f),
+                                        shape = CircleShape
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = if (budgetPulse.isFaster) Icons.AutoMirrored.Filled.TrendingUp else Icons.AutoMirrored.Filled.TrendingDown,
+                                    contentDescription = "Pulse Trend",
+                                    tint = if (budgetPulse.isFaster) ExpenseRose else FintechGreen,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "BUDGET PULSE TREND",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Black,
+                                    letterSpacing = 1.sp,
+                                    color = if (budgetPulse.isFaster) ExpenseRose else FintechGreen
+                                )
+                                Text(
+                                    text = budgetPulse.headline,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                        Box(
+                            modifier = Modifier
+                                .background(
+                                    color = if (budgetPulse.isFaster) ExpenseRose.copy(alpha = 0.25f) else FintechGreen.copy(alpha = 0.25f),
+                                    shape = RoundedCornerShape(20.dp)
+                                )
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = budgetPulse.pulseTag,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = 0.5.sp,
+                                color = if (budgetPulse.isFaster) ExpenseRose else FintechGreen
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = budgetPulse.subtext,
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                    )
                 }
             }
         }
@@ -3243,7 +3364,7 @@ fun RechartsTrendWebView(
             <script type="text/babel">
                 const { 
                     ResponsiveContainer, AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
-                    XAxis, YAxis, CartesianGrid, Tooltip, Legend 
+                    XAxis, YAxis, CartesianGrid, Tooltip, Legend, LineChart, Line
                 } = Recharts;
 
                 const trendData = [ $trendDataJson ];
@@ -3504,6 +3625,34 @@ fun RechartsTrendWebView(
                                             <Tooltip content={<CustomTooltip />} />
                                             <Bar dataKey="Spent" name="Monthly Spending" fill={isDark ? "#FBBF24" : "#D97706"} radius={[4, 4, 0, 0]} />
                                         </BarChart>
+                                    </ResponsiveContainer>
+                                </div>
+                            </div>
+
+                            {/* 3.5 Long-Term Financial Health: Expenses vs Budget Limits Line Chart */}
+                            <div className={"p-4 rounded-xl border " + (isDark ? "bg-slate-900/60 border-slate-800/80" : "bg-slate-50 border-slate-200")}>
+                                <h3 className="text-[11px] font-bold tracking-wider text-emerald-500 uppercase mb-3">
+                                    📈 LONG-TERM FINANCIAL HEALTH: EXPENSES VS BUDGET LIMITS
+                                </h3>
+                                <div className="h-[200px] w-full">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <LineChart data={monthlyData} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
+                                            <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#1E293B" : "#E2E8F0"} vertical={false} />
+                                            <XAxis 
+                                                dataKey="month" 
+                                                tick={{ fill: isDark ? "#94A3B8" : "#4B5563", fontSize: 9 }}
+                                                stroke={isDark ? "#334155" : "#CBD5E1"}
+                                            />
+                                            <YAxis 
+                                                tickFormatter={(val) => currencySymbol + val} 
+                                                tick={{ fill: isDark ? "#94A3B8" : "#4B5563", fontSize: 9 }}
+                                                stroke={isDark ? "#334155" : "#CBD5E1"}
+                                            />
+                                            <Tooltip content={<CustomTooltip />} />
+                                            <Legend wrapperStyle={{ fontSize: '9px', paddingTop: '8px' }} />
+                                            <Line type="monotone" dataKey="Spent" name="Monthly Expenses" stroke="#F43F5E" strokeWidth={2.5} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                                            <Line type="monotone" dataKey="Limit" name="Budget Limit" stroke="#10B981" strokeWidth={2} strokeDasharray="5 5" dot={{ r: 3 }} />
+                                        </LineChart>
                                     </ResponsiveContainer>
                                 </div>
                             </div>

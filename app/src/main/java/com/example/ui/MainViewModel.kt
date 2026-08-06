@@ -12,6 +12,8 @@ import com.example.data.repository.CountryConfigProviderService
 import com.example.data.service.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -316,6 +318,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // --- Cloud Notifications & Budget Alarms ---
     private val _cloudNotifications = MutableStateFlow<List<com.example.data.api.NotificationSyncDto>>(emptyList())
     val cloudNotifications: StateFlow<List<com.example.data.api.NotificationSyncDto>> = _cloudNotifications.asStateFlow()
+
+    // --- Diagnostic Report & Initial JSON Backup Restore State ---
+    private val _diagnosticReport = MutableStateFlow<com.example.data.service.DiagnosticReport?>(null)
+    val diagnosticReport: StateFlow<com.example.data.service.DiagnosticReport?> = _diagnosticReport.asStateFlow()
+
+    private val _pendingJsonBackupFile = MutableStateFlow<java.io.File?>(null)
+    val pendingJsonBackupFile: StateFlow<java.io.File?> = _pendingJsonBackupFile.asStateFlow()
 
     fun fetchCloudNotifications(onComplete: (String?) -> Unit = {}) {
         viewModelScope.launch {
@@ -796,8 +805,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun convertCurrency(amount: Double, fromCurrency: String, toCurrency: String): Double {
         if (fromCurrency.uppercase() == toCurrency.uppercase()) return amount
         val rates = exchangeRates.value
-        val fromRateInUsd = rates[fromCurrency.uppercase()] ?: return amount
-        val toRateInUsd = rates[toCurrency.uppercase()] ?: return amount
+        val fallbackRates = mapOf(
+            "USD" to 1.0, "EUR" to 0.92, "GBP" to 0.79, "JPY" to 155.0,
+            "CAD" to 1.36, "AUD" to 1.52, "INR" to 83.5, "BDT" to 117.0,
+            "SGD" to 1.35, "CNY" to 7.23, "CHF" to 0.90, "AED" to 3.67, "SAR" to 3.75
+        )
+        val fromRateInUsd = rates[fromCurrency.uppercase()] ?: fallbackRates[fromCurrency.uppercase()] ?: 1.0
+        val toRateInUsd = rates[toCurrency.uppercase()] ?: fallbackRates[toCurrency.uppercase()] ?: 1.0
         val amountInUsd = amount / fromRateInUsd
         return amountInUsd * toRateInUsd
     }
@@ -897,21 +911,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
-
-    val monthToMonthSpending: StateFlow<String> = allTransactions.map { txList ->
-        val sdf = SimpleDateFormat("yyyy-MM", Locale.US)
-        val monthlyMap = txList.filter { it.type == "EXPENSE" }
-            .groupBy { sdf.format(Date(it.timestamp)) }
-            .mapValues { (_, txs) -> txs.sumOf { it.amount } }
-
-        val sortedList = monthlyMap.entries
-            .sortedBy { it.key }
-            .takeLast(6)
-
-        sortedList.joinToString(",") { entry ->
-            "{\"month\": \"${entry.key}\", \"Spent\": ${entry.value}}"
-        }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
 
     val monthlySpendingByCategory: StateFlow<Map<String, Map<String, Double>>> = combine(
         allTransactions,
@@ -1024,17 +1023,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         // Check for 30-day database backup reminder on launch
         checkBackupReminder()
-
-        // Keep AppWidget synced with current month spending
-        viewModelScope.launch {
-            currentOutflow.collect { outflow ->
-                com.example.widget.QuickExpenseWidgetProvider.updateSpending(
-                    application,
-                    outflow,
-                    activeCountryConfig.value.currencySymbol
-                )
-            }
-        }
 
         // Collect and check for upcoming recurring transaction warnings (3-day window)
         viewModelScope.launch {
@@ -1336,6 +1324,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         .flatMapLatest { month -> repository.getBudgetsForMonth(month) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val monthToMonthSpending: StateFlow<String> = combine(allTransactions, activeBudgets) { txList, budgetList ->
+        val sdf = SimpleDateFormat("yyyy-MM", Locale.US)
+        val monthlyMap = txList.filter { it.type == "EXPENSE" }
+            .groupBy { sdf.format(Date(it.timestamp)) }
+            .mapValues { (_, txs) -> txs.sumOf { it.amount } }
+
+        val totalBudgetCap = budgetList.sumOf { it.amount }.let { if (it <= 0.0) 2500.0 else it }
+
+        val sortedList = monthlyMap.entries
+            .sortedBy { it.key }
+            .takeLast(6)
+
+        if (sortedList.isEmpty()) {
+            val currentMonth = sdf.format(Date())
+            "{\"month\": \"$currentMonth\", \"Spent\": 0.0, \"Limit\": $totalBudgetCap}"
+        } else {
+            sortedList.joinToString(",") { entry ->
+                "{\"month\": \"${entry.key}\", \"Spent\": ${entry.value}, \"Limit\": $totalBudgetCap}"
+            }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
+
     // Keep track of which alert keys we have already notified in the current app session to avoid spamming
     private val notifiedAlertKeys = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
@@ -1395,6 +1405,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
+    init {
+        // Keep AppWidget synced with current month spending
+        viewModelScope.launch {
+            currentOutflow.collect { outflow ->
+                com.example.widget.QuickExpenseWidgetProvider.updateSpending(
+                    getApplication(),
+                    outflow,
+                    activeCountryConfig.value.currencySymbol
+                )
+            }
+        }
+    }
+
     val previousMonthOutflow: StateFlow<Double> = combine(allTransactions, selectedMonth, accounts, displayCurrency, exchangeRates) { txs, month, accList, targetCurrency, rates ->
         val sdf = SimpleDateFormat("yyyy-MM", Locale.US)
         val cal = Calendar.getInstance()
@@ -1433,6 +1456,237 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "Calculating...")
+
+    // Budget Pulse: Transaction spending velocity trend indicator
+    val budgetPulse: StateFlow<com.example.data.model.BudgetPulseData> = combine(
+        currentOutflow,
+        previousMonthOutflow,
+        displayCurrencySymbol
+    ) { currentSpent, prevSpent, currSymbol ->
+        val cal = Calendar.getInstance()
+        val currentDay = maxOf(1, cal.get(Calendar.DAY_OF_MONTH))
+        val totalDaysInMonth = maxOf(28, cal.getActualMaximum(Calendar.DAY_OF_MONTH))
+        
+        val dailyCurrent = currentSpent / currentDay
+        val dailyPrev = prevSpent / 30.0
+
+        val projectedTotal = dailyCurrent * totalDaysInMonth
+
+        if (dailyPrev <= 0.0 && dailyCurrent <= 0.0) {
+            com.example.data.model.BudgetPulseData(
+                headline = "Transaction velocity steady",
+                subtext = "No active outflow recorded for this period.",
+                pulseTag = "OPTIMAL SAVER",
+                percentageChange = 0.0,
+                isFaster = false,
+                dailySpendCurrent = 0.0,
+                dailySpendPrevious = 0.0,
+                projectedTotalSpent = 0.0
+            )
+        } else if (dailyPrev <= 0.0) {
+            com.example.data.model.BudgetPulseData(
+                headline = "Current daily pace: $currSymbol${String.format(Locale.US, "%.2f", dailyCurrent)}/day",
+                subtext = "No previous month baseline to compare.",
+                pulseTag = "ACTIVE PACE",
+                percentageChange = 0.0,
+                isFaster = true,
+                dailySpendCurrent = dailyCurrent,
+                dailySpendPrevious = 0.0,
+                projectedTotalSpent = projectedTotal
+            )
+        } else {
+            val diff = dailyCurrent - dailyPrev
+            val pct = (diff / dailyPrev) * 100.0
+            val isFaster = diff > 0
+
+            val headlineText = if (isFaster) {
+                "Spending ${String.format(Locale.US, "%.0f%%", pct)} faster than last month"
+            } else {
+                "Spending ${String.format(Locale.US, "%.0f%%", -pct)} slower than last month"
+            }
+
+            val pulseTagText = if (isFaster && pct > 20) {
+                "FAST PACED"
+            } else if (isFaster) {
+                "MODERATE PACE"
+            } else {
+                "STEADY SAVER"
+            }
+
+            val subtextText = "Current: $currSymbol${String.format(Locale.US, "%.1f", dailyCurrent)}/day vs Last Month: $currSymbol${String.format(Locale.US, "%.1f", dailyPrev)}/day"
+
+            com.example.data.model.BudgetPulseData(
+                headline = headlineText,
+                subtext = subtextText,
+                pulseTag = pulseTagText,
+                percentageChange = pct,
+                isFaster = isFaster,
+                dailySpendCurrent = dailyCurrent,
+                dailySpendPrevious = dailyPrev,
+                projectedTotalSpent = projectedTotal
+            )
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.example.data.model.BudgetPulseData())
+
+    // ML & Pattern-based tag suggestion system
+    fun suggestTagsForMerchant(merchantName: String): List<String> {
+        if (merchantName.isBlank()) return emptyList()
+        val allTxs = allTransactions.value
+        val matches = allTxs.filter {
+            it.merchant.contains(merchantName, ignoreCase = true) || merchantName.contains(it.merchant, ignoreCase = true)
+        }
+        val tagFreq = mutableMapOf<String, Int>()
+        matches.forEach { tx ->
+            tx.tags.split(",", ";", " ").map { it.trim() }.filter { it.isNotBlank() }.forEach { tag ->
+                tagFreq[tag] = (tagFreq[tag] ?: 0) + 1
+            }
+        }
+        if (tagFreq.isEmpty()) {
+            val lower = merchantName.lowercase(Locale.US)
+            when {
+                lower.contains("uber") || lower.contains("lyft") || lower.contains("cab") || lower.contains("fuel") || lower.contains("gas") -> {
+                    tagFreq["Transport"] = 5; tagFreq["Commute"] = 3
+                }
+                lower.contains("starbucks") || lower.contains("coffee") || lower.contains("cafe") -> {
+                    tagFreq["Coffee"] = 5; tagFreq["Dining"] = 3
+                }
+                lower.contains("amazon") || lower.contains("walmart") || lower.contains("target") || lower.contains("shop") -> {
+                    tagFreq["Groceries"] = 5; tagFreq["Shopping"] = 3
+                }
+                lower.contains("netflix") || lower.contains("spotify") || lower.contains("hulu") -> {
+                    tagFreq["Subscriptions"] = 5; tagFreq["Entertainment"] = 3
+                }
+                lower.contains("pharmacy") || lower.contains("clinic") || lower.contains("hospital") || lower.contains("health") -> {
+                    tagFreq["Health"] = 5; tagFreq["Medical"] = 3
+                }
+                else -> {
+                    tagFreq["General"] = 1
+                }
+            }
+        }
+        return tagFreq.entries.sortedByDescending { it.value }.map { it.key }.take(4)
+    }
+
+    // JSON Data Export
+    fun exportTransactionsToJson(context: android.content.Context, onComplete: (String) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val txs = allTransactions.value
+                val cats = categories.value
+                val accs = accounts.value
+
+                val jsonArray = org.json.JSONArray()
+                txs.forEach { tx ->
+                    val catName = cats.find { it.id == tx.categoryId }?.name ?: "Unassigned"
+                    val accName = accs.find { it.id == tx.accountId }?.name ?: "Account"
+                    val obj = org.json.JSONObject().apply {
+                        put("id", tx.id)
+                        put("type", tx.type)
+                        put("amount", tx.amount)
+                        put("merchant", tx.merchant)
+                        put("category", catName)
+                        put("account", accName)
+                        put("notes", tx.notes)
+                        put("tags", tx.tags)
+                        put("isTaxDeductible", tx.isTaxDeductible)
+                        put("timestamp", tx.timestamp)
+                        put("dateFormatted", SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date(tx.timestamp)))
+                    }
+                    jsonArray.put(obj)
+                }
+
+                val exportRoot = org.json.JSONObject().apply {
+                    put("appName", "WealthFlow")
+                    put("exportVersion", "1.0")
+                    put("exportedAt", SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date()))
+                    put("totalTransactions", txs.size)
+                    put("transactions", jsonArray)
+                }
+
+                val fileName = "wealthflow_backup_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())}.json"
+                val file = java.io.File(context.cacheDir, fileName)
+                file.writeText(exportRoot.toString(2))
+
+                val contentUri = androidx.core.content.FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    file
+                )
+
+                val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                    type = "application/json"
+                    putExtra(android.content.Intent.EXTRA_STREAM, contentUri)
+                    addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                context.startActivity(android.content.Intent.createChooser(shareIntent, "Export WealthFlow JSON Backup"))
+                withContext(Dispatchers.Main) {
+                    onComplete("JSON Backup created: $fileName (${txs.size} records)")
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    onComplete("JSON Export error: ${e.localizedMessage}")
+                }
+            }
+        }
+    }
+
+    // XML Data Export
+    fun exportTransactionsToXml(context: android.content.Context, onComplete: (String) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val txs = allTransactions.value
+                val cats = categories.value
+                val accs = accounts.value
+
+                val sb = StringBuilder()
+                sb.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
+                sb.append("<wealthflow_backup app=\"WealthFlow\" exportedAt=\"${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())}\" count=\"${txs.size}\">\n")
+                sb.append("  <transactions>\n")
+                txs.forEach { tx ->
+                    val catName = cats.find { it.id == tx.categoryId }?.name ?: "Unassigned"
+                    val accName = accs.find { it.id == tx.accountId }?.name ?: "Account"
+                    sb.append("    <transaction>\n")
+                    sb.append("      <id>${tx.id}</id>\n")
+                    sb.append("      <type>${tx.type}</type>\n")
+                    sb.append("      <amount>${tx.amount}</amount>\n")
+                    sb.append("      <merchant><![CDATA[${tx.merchant}]]></merchant>\n")
+                    sb.append("      <category><![CDATA[${catName}]]></category>\n")
+                    sb.append("      <account><![CDATA[${accName}]]></account>\n")
+                    sb.append("      <notes><![CDATA[${tx.notes}]]></notes>\n")
+                    sb.append("      <tags><![CDATA[${tx.tags}]]></tags>\n")
+                    sb.append("      <isTaxDeductible>${tx.isTaxDeductible}</isTaxDeductible>\n")
+                    sb.append("      <timestamp>${tx.timestamp}</timestamp>\n")
+                    sb.append("    </transaction>\n")
+                }
+                sb.append("  </transactions>\n")
+                sb.append("</wealthflow_backup>\n")
+
+                val fileName = "wealthflow_backup_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())}.xml"
+                val file = java.io.File(context.cacheDir, fileName)
+                file.writeText(sb.toString())
+
+                val contentUri = androidx.core.content.FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    file
+                )
+
+                val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                    type = "application/xml"
+                    putExtra(android.content.Intent.EXTRA_STREAM, contentUri)
+                    addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                context.startActivity(android.content.Intent.createChooser(shareIntent, "Export WealthFlow XML Backup"))
+                withContext(Dispatchers.Main) {
+                    onComplete("XML Backup created: $fileName (${txs.size} records)")
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    onComplete("XML Export error: ${e.localizedMessage}")
+                }
+            }
+        }
+    }
 
     // Smart trend projection to warn if user exceeds monthly limit based on daily spending average
     val budgetProjection: StateFlow<BudgetProjectionAnalysis> = combine(
@@ -2659,6 +2913,63 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun runDatabaseDiagnostic(context: android.content.Context) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val db = com.example.data.database.AppDatabase.getDatabase(context)
+            val report = com.example.data.service.DatabaseDiagnosticService.runDiagnosticAndRepair(context, db)
+            _diagnosticReport.value = report
+            withContext(Dispatchers.Main) {
+                if (report.isHealthy) {
+                    postNotification("Database Diagnostic: Schema & Currency Cache healthy!")
+                } else {
+                    postNotification("Database Diagnostic Repaired: ${report.orphanedRecordsFixed} orphaned, ${report.corruptedAmountsFixed} corrupted records fixed.")
+                }
+            }
+        }
+    }
+
+    fun checkForInitialJsonBackups(context: android.content.Context) {
+        val prefs = context.getSharedPreferences("wealthflow_app_launch_prefs", android.content.Context.MODE_PRIVATE)
+        val alreadyPrompted = prefs.getBoolean("has_checked_initial_json_backup", false)
+        if (!alreadyPrompted) {
+            viewModelScope.launch(Dispatchers.IO) {
+                val backupFiles = com.example.data.service.JsonBackupMigrationUtility.scanForJsonBackups(context)
+                if (backupFiles.isNotEmpty()) {
+                    _pendingJsonBackupFile.value = backupFiles.first()
+                }
+            }
+        }
+    }
+
+    fun restorePendingJsonBackup(context: android.content.Context, onResult: (String) -> Unit) {
+        val file = _pendingJsonBackupFile.value ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            val db = com.example.data.database.AppDatabase.getDatabase(context)
+            val res = com.example.data.service.JsonBackupMigrationUtility.restoreFromJsonFile(context, db, file)
+            val prefs = context.getSharedPreferences("wealthflow_app_launch_prefs", android.content.Context.MODE_PRIVATE)
+            prefs.edit().putBoolean("has_checked_initial_json_backup", true).apply()
+            withContext(Dispatchers.Main) {
+                _pendingJsonBackupFile.value = null
+                onResult(res.second)
+                postNotification(res.second)
+            }
+        }
+    }
+
+    fun dismissPendingJsonBackupPrompt(context: android.content.Context) {
+        _pendingJsonBackupFile.value = null
+        val prefs = context.getSharedPreferences("wealthflow_app_launch_prefs", android.content.Context.MODE_PRIVATE)
+        prefs.edit().putBoolean("has_checked_initial_json_backup", true).apply()
+    }
+
+    fun triggerPredictiveOverrunAudit(context: android.content.Context) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val buds = activeBudgets.value
+            val cats = categories.value
+            com.example.data.service.BudgetNotificationService.checkPredictiveVelocityOverrunsAndNotify(context, buds, cats)
+        }
+    }
+
     fun exportReportToCsv(context: android.content.Context) {
         val txs = filteredTransactions.value
         val cats = categories.value
@@ -2844,11 +3155,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun exportTaxReportToPdf(context: android.content.Context) {
         val txs = allTransactions.value.filter { it.isTaxDeductible && it.type == "EXPENSE" }
         val cats = categories.value
-        val currentMonthStr = selectedMonth.value
         val config = activeCountryConfig.value
 
         try {
-            val pdfFile = com.example.data.service.PdfExportHelper.generatePdfReport(context, txs, cats, "Tax Deductibles - ${config.fiscalYear}", config)
+            val pdfFile = com.example.data.service.PdfExportHelper.generateTaxSummaryPdfReport(
+                context,
+                txs,
+                cats,
+                config.fiscalYear,
+                config
+            )
             val fileUri = androidx.core.content.FileProvider.getUriForFile(
                 context,
                 "com.example.fileprovider",
@@ -2857,12 +3173,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
                 type = "application/pdf"
-                putExtra(android.content.Intent.EXTRA_SUBJECT, "WealthFlow PDF Tax Deductible Report - ${config.country}")
+                putExtra(android.content.Intent.EXTRA_SUBJECT, "WealthFlow Annual Tax Summary Report (${config.fiscalYear}) - ${config.country}")
+                putExtra(android.content.Intent.EXTRA_TEXT, "Attached is your annual tax summary report categorized by tax tags for financial year ${config.fiscalYear}.")
                 putExtra(android.content.Intent.EXTRA_STREAM, fileUri)
                 addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            context.startActivity(android.content.Intent.createChooser(shareIntent, "Share PDF Tax Report"))
-            postNotification("Generated and shared PDF Tax Report successfully!")
+            context.startActivity(android.content.Intent.createChooser(shareIntent, "Share Annual Tax Summary Report"))
+            postNotification("📄 Annual Tax Summary PDF generated and shared successfully!")
         } catch (e: Exception) {
             android.widget.Toast.makeText(context, "PDF Tax Report error: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
         }
