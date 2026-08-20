@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<lint>
+    <!-- Strict Security Checks -->
+    <issue id="HardcodedDebugMode" severity="fatal" />
+    <issue id="ExportedService" severity="error" />
+    <issue id="ExportedReceiver" severity="error" />
+    <issue id="ExportedActivity" severity="warning" />
+    <issue id="GrantUriPermissions" severity="error" />
+    <issue id="BadProvider" severity="error" />
+    <issue id="SetWorldReadable" severity="fatal" />
+    <issue id="SetWorldWritable" severity="fatal" />
+    <issue id="HardwareIds" severity="error" />
+    <issue id="TrustAllX509TrustManager" severity="fatal" />
+    <issue id="UnsafeProtectedBroadcastReceiver" severity="error" />
+    <issue id="AllowBackup" severity="warning" />
+
+    <!-- Performance & Memory Optimization Checks -->
+    <issue id="UseSparseArrays" severity="error" />
+    <issue id="UseValueOf" severity="error" />
+    <issue id="Overscrolled" severity="warning" />
+    <issue id="UnusedResources" severity="warning" />
+    <issue id="UselessParent" severity="error" />
+    <issue id="UselessLeaf" severity="error" />
+    <issue id="DrawAllocation" severity="error" />
+    <issue id="UseCompoundDrawables" severity="warning" />
+    <issue id="NestedWeights" severity="warning" />
+    <issue id="ObsoleteLayoutParam" severity="warning" />
+    <issue id="StaticFieldLeak" severity="error" />
+    <issue id="HandlerLeak" severity="error" />
+    <issue id="Recycle" severity="error" />
+    <issue id="Wakelock" severity="error" />
+    <issue id="SetTextI18n" severity="warning" />
+
+    <!-- Code Correctness & Best Practices -->
+    <issue id="MissingPermission" severity="error" />
+    <issue id="NewApi" severity="error" />
+    <issue id="Override" severity="error" />
+    <issue id="InvalidPackage" severity="error" />
+</lint>
